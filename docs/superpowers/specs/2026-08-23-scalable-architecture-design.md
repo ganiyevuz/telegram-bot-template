@@ -459,6 +459,25 @@ Each phase leaves the repository working.
 
 Phase 7 precedes 8 because the payment flow starts from a callback button.
 
+### Plan scoping
+
+**The first implementation plan covers phases 1-6 only** — the scalability core.
+Phases 7-12 (payments, Mini App, admin, ops, docs) get their own plans afterwards.
+
+This imposes a constraint on phases 1-6: **the existing Flask-Admin panel must keep
+working**, because it is not replaced until phase 10. Concretely:
+
+- SQLAlchemy models stay at `bot/database/models/`, since `admin/app.py` imports
+  `bot.database.models.UserModel` directly.
+- The `users` table shape does not change in phases 1-6.
+- The `admin` compose service and `admin/Dockerfile` remain untouched.
+- Only `cachetools` and `types-cachetools` may be removed in phases 1-6 (throttling
+  moves to Redis). `flask*`, `psycopg2-binary`, `gunicorn`, and `tablib` are still
+  in use by the admin panel and must survive until phase 10.
+
+The `api` entrypoint added in phase 4 runs alongside the existing admin service
+rather than absorbing it; the merge happens in phase 10.
+
 ## 20. Risks
 
 | Risk | Mitigation |
