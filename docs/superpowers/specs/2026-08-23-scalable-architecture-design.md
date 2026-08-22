@@ -40,6 +40,7 @@ no rate limiting: MEDIUM; in-memory sessions in production: MEDIUM).
 - Fix every defect in section 1.
 - Monetize via Telegram Stars, wiring up the `premium` button that already exists.
 - Ship a Telegram Mini App with a secure backend contract.
+- Alert operators in Telegram, and ship encrypted database backups there.
 - Track latest stable dependency versions.
 
 ## 3. Non-goals
@@ -391,7 +392,89 @@ Mini App initData rejections, payment outcomes, and database pool statistics. Th
 correlation id is bound in loguru and attached to the Sentry scope. The Grafana
 dashboard is extended beyond node-exporter to cover these.
 
-## 17. Deployment
+## 17. Telegram notifier
+
+Operational alerting into a Telegram admin chat, plus an inbound endpoint so other
+systems can push alerts through the bot.
+
+**Internal sources.** The `dp.errors` handler (section 7) reports critical
+exceptions; readiness transitions from `/health/ready`; broadcast completion;
+backup outcomes; process startup and shutdown.
+
+**Inbound endpoint.** `POST /api/notify` on the FastAPI app, authenticated by an
+HMAC signature over the request body using a shared secret, with a timestamp header
+to prevent replay. CI pipelines, cron jobs, and uptime checks post to it. The
+handler validates, enqueues a TaskIQ job, and returns `202` — it never blocks on
+Telegram delivery.
+
+**Alert-storm suppression is the part that needs design.** A crash loop would
+otherwise emit thousands of messages, exhaust the outbound rate limiter, and starve
+real user traffic. Every alert carries a fingerprint — exception type, module, and
+line for errors; source and key for inbound alerts — and the notifier does
+`SET notify:{fingerprint} NX EX <cooldown>`. During a cooldown it increments a
+counter instead of sending. When the window expires the next alert reports
+`(x147 suppressed)` rather than the backlog. Alerts also pass through the outbound
+token bucket from section 10, so they can never outrank user messages.
+
+**Structure.** `bot/notifier/service.py` holds `NotifierService.send(level, title,
+body, fingerprint)`; `bot/notifier/levels.py` defines the severity enum and its
+formatting; `bot/api/notify.py` is the endpoint; `bot/tasks/notify.py` is the
+delivery task. Configuration: `NOTIFIER_CHAT_ID`, optional
+`NOTIFIER_TOPIC_ID` for forum threads, `NOTIFIER_SECRET`, and
+`NOTIFIER_COOLDOWN_SECONDS` (default 300).
+
+## 18. Backupgram
+
+Ships encrypted database backups to a private Telegram channel.
+
+**It does not dump the database.** The existing `pgbackup` service
+(`prodrigestivill/postgres-backup-local`) already writes compressed dumps to the
+`backups-data` volume every 30 minutes with day/week/month retention. Backupgram
+mounts that volume read-only and ships the newest artifact. Re-dumping would double
+the load on Postgres for no benefit.
+
+**Encryption is mandatory and asymmetric.** The task uses `age` with an X25519
+recipient: `age -r $BACKUP_AGE_PUBLIC_KEY`. The consequence is the important part —
+**the bot holds only the public key and cannot decrypt its own backups.** An
+attacker who compromises the bot, the container, or the Telegram account gets
+ciphertext. The private key never enters the deployment; the operator keeps it
+offline and uses it only when restoring.
+
+If `BACKUP_AGE_PUBLIC_KEY` is unset the task refuses to run and raises a
+notifier alert. There is no plaintext path and no override flag: this is a template
+others copy verbatim, and an escape hatch becomes somebody's production
+configuration.
+
+`age` 1.2.1 is available in Alpine's community repository and is added to the
+bot image with `apk add --no-cache age`. It streams, so memory stays flat
+regardless of dump size.
+
+**The 50 MB ceiling.** Telegram caps bot document uploads at 50 MB (2 GB only via a
+self-hosted Bot API server). Larger archives are split into numbered parts —
+`backup-<ts>.dump.gz.age.part01` and so on — preceded by a manifest message listing
+the part count, total size, and SHA-256 of the assembled ciphertext. The restore
+path concatenates parts, verifies the digest, decrypts, and pipes into
+`pg_restore`.
+
+**Retention** in the destination channel mirrors the volume policy: the task deletes
+its own messages older than `BACKUP_KEEP_DAYS`, tracking message ids in Redis.
+
+**Surfaces.** A scheduled TaskIQ job (`BACKUP_SCHEDULE`, default daily), plus a
+`/backup` admin command for on-demand runs. Both report through the notifier from
+section 17.
+
+**Also fixes a broken script.** `scripts/postgres/backup` runs
+`pg_dump -Fc app -U "$POSTGRES_USER"`, hardcoding the database name to `app` while
+compose provisions `${DB_NAME}`. It therefore fails against any real deployment.
+Backupgram's phase corrects it to use `$POSTGRES_DB` and adds
+`scripts/postgres/decrypt` for the restore path.
+
+**Structure.** `bot/tasks/backup.py` for the job; `bot/services/backup.py` for
+discovery, encryption, splitting, and manifest construction. Configuration:
+`BACKUP_AGE_PUBLIC_KEY`, `BACKUP_CHAT_ID`, `BACKUP_SCHEDULE`, `BACKUP_DIR`
+(default `/backups`), `BACKUP_KEEP_DAYS`.
+
+## 19. Deployment
 
 - Compose services: `api` (scalable), `worker` (scalable), `scheduler` (single),
   plus the existing `postgres`, `pgbouncer`, `redis`, `migrator`, `prometheus`,
@@ -410,7 +493,7 @@ dashboard is extended beyond node-exporter to cover these.
   localhost will not work on mobile.
 - Graceful shutdown drains in-flight updates before exit.
 
-## 18. Dependencies
+## 20. Dependencies
 
 Added: `fastapi` 0.141.1, `uvicorn` 0.52.4, `sqladmin` 0.31.0, `itsdangerous` 2.2.0,
 `python-multipart` 0.0.32, `dishka` 1.10.1, `taskiq` 0.12.5, `taskiq-redis` 1.2.3.
@@ -444,7 +527,7 @@ The `sqlalchemy[asyncio]` extra from the preceding upstream sync is retained. Th
 sync also pinned `aiogram` 3.29.1 to escape the yanked 3.29.0; moving to 3.30.0
 supersedes that pin while keeping the constraint floor above the yanked release.
 
-## 19. Implementation phases
+## 21. Implementation phases
 
 Each phase leaves the repository working.
 
@@ -458,8 +541,10 @@ Each phase leaves the repository working.
 8. **Payments** — model, migration, Stars handlers, subscriptions, refunds, reconciliation.
 9. **Mini App** — initData validation, API routes, launch surfaces, demo page.
 10. **Admin** — SQLAdmin, Alembic-managed admin tables, remove the Flask stack.
-11. **Ops** — compose, pgbouncer transaction mode, Dockerfile, CI, Grafana.
-12. **Docs** — README, `.env.example`, `CLAUDE.md`.
+11. **Notifier** — service, cooldown suppression, `POST /api/notify`, internal sources.
+12. **Backupgram** — age encryption, splitting, manifest, retention, restore path.
+13. **Ops** — compose, pgbouncer transaction mode, Dockerfile, CI, Grafana.
+14. **Docs** — README, `.env.example`, `CLAUDE.md`.
 
 Phase 7 precedes 8 because the payment flow starts from a callback button.
 
@@ -482,14 +567,17 @@ working**, because it is not replaced until phase 10. Concretely:
 The `api` entrypoint added in phase 4 runs alongside the existing admin service
 rather than absorbing it; the merge happens in phase 10.
 
-## 20. Risks
+## 22. Risks
 
 | Risk | Mitigation |
 |---|---|
 | SQLAdmin's UI differs from AdminLTE | Feature parity is the bar, not pixel parity; `DashboardView` preserves the stats page |
-| pgbouncer transaction mode breaks asyncpg prepared statements | Disable both statement caches; verify against a live pgbouncer before phase 11 lands |
+| pgbouncer transaction mode breaks asyncpg prepared statements | Disable both statement caches; verify against a live pgbouncer before phase 13 lands |
 | Payments cannot be end-to-end verified without a real bot and a Stars balance | Handlers are unit-shaped and verified against a mocked bot session; the README documents live verification steps |
 | Mini App requires public HTTPS, so local verification is limited | Validation logic is verified directly against known-good and forged initData vectors |
 | Python floor 3.10 to 3.12 excludes some forkers | 3.12 is over two years old; Docker already runs 3.13 |
 | Upstream merges become cherry-picks | Accepted explicitly; `CLAUDE.md` records every deviation |
+| A backup in a Telegram chat is exposed to everyone in that channel | Mandatory asymmetric `age` encryption; the bot holds only the public key and cannot decrypt what it uploads |
+| Losing the age private key makes every backup unrecoverable | README states this plainly and tells operators to escrow the key before enabling the phase |
+| The notify endpoint is a public write surface | HMAC over the body plus a timestamp header; it only enqueues, never executes caller-supplied content |
 | No tests accompany a large rearchitecture | Accepted explicitly; phases are independently runnable, and each is verified against live Postgres and Redis as the sync was |
