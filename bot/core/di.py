@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import UserRepository
+from bot.services.users import UserService
 from bot.telegram.factory import create_bot
 
 
@@ -91,6 +92,10 @@ class RequestProvider(Provider):
     @provide
     def users(self, session: AsyncSession) -> UserRepository:
         return UserRepository(session)
+
+    @provide
+    def user_service(self, users: UserRepository, cache: CacheService) -> UserService:
+        return UserService(users, cache)
 
 
 def create_container(settings: Settings) -> AsyncContainer:

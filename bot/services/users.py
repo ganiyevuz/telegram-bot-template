@@ -1,118 +1,83 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select, update
-
-from bot.cache.redis import build_key, cached, clear_cache
-from bot.database.models import UserModel
+from bot.cache.keys import CacheKeys
 
 if TYPE_CHECKING:
-    from aiogram.types import User
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from aiogram.types import User as TgUser
+
+    from bot.cache.service import CacheService
+    from bot.database.repositories import UserRepository
+
+USER_TTL = 300
+COUNT_TTL = 60
 
 
-async def add_user(
-    session: AsyncSession,
-    user: User,
-    referrer: str | None,
-) -> None:
-    """Add a new user to the database."""
-    user_id: int = user.id
-    first_name: str = user.first_name
-    last_name: str | None = user.last_name
-    username: str | None = user.username
-    language_code: str | None = user.language_code
-    is_premium: bool = user.is_premium or False
+class UserService:
+    """Use cases over users. Owns cache invalidation so call sites cannot forget it."""
 
-    new_user = UserModel(
-        id=user_id,
-        first_name=first_name,
-        last_name=last_name,
-        username=username,
-        language_code=language_code,
-        is_premium=is_premium,
-        referrer=referrer,
-    )
+    def __init__(self, users: UserRepository, cache: CacheService) -> None:
+        self._users = users
+        self._cache = cache
 
-    session.add(new_user)
-    await session.commit()
-    await clear_cache(user_exists, user_id)
+    async def ensure_registered(self, tg_user: TgUser, referrer: str | None) -> bool:
+        """Register the user if new. Returns True when a row was created."""
+        key = CacheKeys.user_exists(tg_user.id)
+        if await self._cache.get(key, bool):
+            return False
+        if await self._users.exists(tg_user.id):
+            await self._cache.set(key, value=True, ttl=USER_TTL)
+            return False
 
+        await self._users.create(tg_user, referrer)
+        await self._cache.invalidate_user(tg_user.id)
+        await self._cache.set(key, value=True, ttl=USER_TTL)
+        return True
 
-@cached(key_builder=lambda session, user_id: build_key(user_id))
-async def user_exists(session: AsyncSession, user_id: int) -> bool:
-    """Checks if the user is in the database."""
-    query = select(UserModel.id).filter_by(id=user_id).limit(1)
+    async def language_of(self, user_id: int) -> str:
+        key = CacheKeys.user_language(user_id)
+        cached = await self._cache.get(key, str)
+        if cached is not None:
+            return cached
+        value = await self._users.language_of(user_id) or ""
+        await self._cache.set(key, value, ttl=USER_TTL)
+        return value
 
-    result = await session.execute(query)
+    async def set_language(self, user_id: int, language_code: str) -> None:
+        await self._users.set_language(user_id, language_code)
+        await self._cache.delete(CacheKeys.user_language(user_id))
 
-    user = result.scalar_one_or_none()
-    return bool(user)
+    async def first_name_of(self, user_id: int) -> str:
+        key = CacheKeys.user_first_name(user_id)
+        cached = await self._cache.get(key, str)
+        if cached is not None:
+            return cached
+        value = await self._users.first_name_of(user_id) or ""
+        await self._cache.set(key, value, ttl=USER_TTL)
+        return value
 
+    async def is_admin(self, user_id: int) -> bool:
+        key = CacheKeys.user_is_admin(user_id)
+        cached = await self._cache.get(key, bool)
+        if cached is not None:
+            return cached
+        value = await self._users.is_admin(user_id)
+        await self._cache.set(key, value, ttl=USER_TTL)
+        return value
 
-@cached(key_builder=lambda session, user_id: build_key(user_id))
-async def get_first_name(session: AsyncSession, user_id: int) -> str:
-    query = select(UserModel.first_name).filter_by(id=user_id)
+    async def set_admin(self, user_id: int, *, value: bool) -> None:
+        await self._users.set_admin(user_id, value=value)
+        await self._cache.delete(CacheKeys.user_is_admin(user_id))
 
-    result = await session.execute(query)
+    async def mark_blocked(self, user_id: int, *, value: bool) -> None:
+        await self._users.set_blocked(user_id, value=value)
+        await self._cache.invalidate_user(user_id)
 
-    first_name = result.scalar_one_or_none()
-    return first_name or ""
-
-
-@cached(key_builder=lambda session, user_id: build_key(user_id))
-async def get_language_code(session: AsyncSession, user_id: int) -> str:
-    query = select(UserModel.language_code).filter_by(id=user_id)
-
-    result = await session.execute(query)
-
-    language_code = result.scalar_one_or_none()
-    return language_code or ""
-
-
-async def set_language_code(
-    session: AsyncSession,
-    user_id: int,
-    language_code: str,
-) -> None:
-    stmt = update(UserModel).where(UserModel.id == user_id).values(language_code=language_code)
-
-    await session.execute(stmt)
-    await session.commit()
-
-
-@cached(key_builder=lambda session, user_id: build_key(user_id))
-async def is_admin(session: AsyncSession, user_id: int) -> bool:
-    query = select(UserModel.is_admin).filter_by(id=user_id)
-
-    result = await session.execute(query)
-
-    is_admin = result.scalar_one_or_none()
-    return bool(is_admin)
-
-
-async def set_is_admin(session: AsyncSession, user_id: int, is_admin: bool) -> None:
-    stmt = update(UserModel).where(UserModel.id == user_id).values(is_admin=is_admin)
-
-    await session.execute(stmt)
-    await session.commit()
-
-
-@cached(key_builder=lambda session: build_key())
-async def get_all_users(session: AsyncSession) -> list[UserModel]:
-    query = select(UserModel)
-
-    result = await session.execute(query)
-
-    users = result.scalars()
-    return list(users)
-
-
-@cached(key_builder=lambda session: build_key())
-async def get_user_count(session: AsyncSession) -> int:
-    query = select(func.count()).select_from(UserModel)
-
-    result = await session.execute(query)
-
-    count = result.scalar_one_or_none() or 0
-    return int(count)
+    async def count(self) -> int:
+        key = CacheKeys.user_count()
+        cached = await self._cache.get(key, int)
+        if cached is not None:
+            return cached
+        value = await self._users.count()
+        await self._cache.set(key, value, ttl=COUNT_TTL)
+        return value
