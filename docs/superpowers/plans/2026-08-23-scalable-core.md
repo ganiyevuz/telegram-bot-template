@@ -573,9 +573,11 @@ class AppProvider(Provider):
             max_overflow=settings.db.max_overflow,
             pool_pre_ping=True,
             # pgbouncer runs in transaction pooling mode, where server-side
-            # prepared statements cannot be reused across transactions.
-            connect_args={"statement_cache_size": 0},
-            prepared_statement_cache_size=0,
+            # prepared statements cannot be reused across transactions. Both of
+            # these are DBAPI-level arguments and must sit inside connect_args --
+            # `prepared_statement_cache_size` is NOT a valid top-level
+            # create_async_engine() kwarg and raises TypeError there.
+            connect_args={"statement_cache_size": 0, "prepared_statement_cache_size": 0},
         )
         yield engine
         await engine.dispose()
