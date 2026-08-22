@@ -16,6 +16,7 @@
 - **The Flask admin panel must keep working after every task.** It is not replaced until phase 10, which is out of scope here. Therefore: SQLAlchemy models stay at `bot/database/models/`; the `users` table shape does not change; `admin/`, `admin/Dockerfile`, and the `admin` compose service are not touched.
 - **Dependency removals are restricted.** Only `cachetools` and `types-cachetools` may be removed in this plan (Task 10). `flask`, `flask-admin`, `flask-security-too`, `flask-caching`, `flask-babel`, `flask-sqlalchemy`, `psycopg2-binary`, `gunicorn`, and `tablib` are still used by the admin panel and MUST remain.
 - **Python floor is 3.14** and is already set. `requires-python = ">=3.14,<4.0"`. Use modern syntax (`X | None`, `type` statements where useful).
+- **Runtime annotation hazard — applies to Tasks 12-15.** dishka's `wrap_injection` calls `get_type_hints()` on a handler's ENTIRE signature, not just its `FromDishka[...]` parameters. So in any module containing an injected handler, EVERY annotated parameter type must be a real module-level import — including `Message`, `CallbackQuery`, and repositories. Putting any of them under `if TYPE_CHECKING:` raises `NameError` at dispatch. The same applies to aiogram filters and middlewares, whose signatures aiogram inspects. Use a per-file `# ruff: noqa: TC001, TC002` and keep the imports at module level; ruff's suggestion to move them is wrong in those files.
 - **`unsafe-fixes` is off, deliberately.** It was `true`, and ruff 0.16 used it to move runtime-needed imports into `TYPE_CHECKING` blocks, breaking `get_type_hints()` on the aiogram filters. Do not turn it back on.
 - **Package manager is `uv`, never bare pip.** Use `uv add` / `uv sync` / `uv run`. Always run `uv sync` after editing `pyproject.toml`.
 - **Logging is loguru.** `from loguru import logger`. Never stdlib `logging` in new code.
@@ -2281,7 +2282,9 @@ uv run pybabel extract --input-dirs=. -o bot/locales/messages.pot
 uv run pybabel update -d bot/locales -i bot/locales/messages.pot
 ```
 
-Then set `msgstr` for `something went wrong` in all three `bot/locales/*/LC_MESSAGES/messages.po` files (English: `⚠️ Something went wrong. Please try again.`; translate for `ru` and `uk`), and compile:
+Then set `msgstr` for `something went wrong` in all three `bot/locales/*/LC_MESSAGES/messages.po` files (English: `⚠️ Something went wrong. Please try again.`; translate for `ru` and `uk`).
+
+**Also fix a pre-existing bug while you are in these files.** `bot/locales/en/LC_MESSAGES/messages.po` translates `user counter: <b>{count}</b>` as `user counter: <b>{count}` — the closing `</b>` is missing. The bot sends with `parse_mode=HTML`, so Telegram rejects the unclosed tag with `TelegramBadRequest`, meaning `/export_users` fails for every English-locale admin. Add the closing tag. (`ru` is already correct; `uk` has an empty msgstr and falls back to the msgid, which is balanced.) Then compile:
 
 ```bash
 uv run pybabel compile -d bot/locales
