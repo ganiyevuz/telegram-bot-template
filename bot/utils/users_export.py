@@ -1,7 +1,7 @@
 from __future__ import annotations
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aiogram.types import BufferedInputFile
 
@@ -20,5 +20,5 @@ async def convert_users_to_csv(users: list[UserModel]) -> BufferedInputFile:
 
     return BufferedInputFile(
         file=s.getvalue().encode("utf-8"),
-        filename=f"users_{datetime.now(timezone.utc).strftime('%Y.%m.%d_%H.%M')}.csv",
+        filename=f"users_{datetime.now(UTC).strftime('%Y.%m.%d_%H.%M')}.csv",
     )

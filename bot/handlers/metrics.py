@@ -1,3 +1,4 @@
+# ruff: noqa: TC002  - these annotations are resolved at runtime (aiogram inspects handler and filter signatures), so the imports must stay at module level
 import prometheus_client
 from aiohttp import web
 from aiohttp.web_request import Request

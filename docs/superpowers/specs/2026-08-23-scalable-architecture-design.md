@@ -432,8 +432,12 @@ Neither payments nor the Mini App adds a dependency.
 
 Net change: **-11 / +8**, and the entire synchronous database stack disappears.
 
-The Python floor rises from 3.10 to **3.12**; Docker images already run 3.13. The
-CI matrix is corrected accordingly — it currently tests 3.9 through 3.12 despite
+The Python floor rises from 3.10 to **3.14** (latest stable; CPython has no LTS
+track, each release simply gets a five-year window). Verified: every C extension in
+the stack — asyncpg, orjson, uvloop, aiohttp, greenlet, pydantic-core, psycopg2 —
+publishes cp314 wheels and imports cleanly. Docker images move to
+`ghcr.io/astral-sh/uv:0.12-python3.14-alpine` (Python 3.14.7, uv 0.12.5), and the CI
+matrix is corrected to match — it previously tested 3.9 through 3.12 despite
 `requires-python = ">=3.10"`.
 
 The `sqlalchemy[asyncio]` extra from the preceding upstream sync is retained. That

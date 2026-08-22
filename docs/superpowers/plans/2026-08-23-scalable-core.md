@@ -15,7 +15,8 @@
 - **No tests.** The user explicitly scoped this work as "architecture only" and has a standing rule: do not write or run tests until asked. Do **not** add pytest, create a `tests/` directory, or write test files. Each task is verified by running the real code against live Postgres and Redis, then `ruff` and `mypy`. If you believe a task needs a test, say so and stop — do not write one.
 - **The Flask admin panel must keep working after every task.** It is not replaced until phase 10, which is out of scope here. Therefore: SQLAlchemy models stay at `bot/database/models/`; the `users` table shape does not change; `admin/`, `admin/Dockerfile`, and the `admin` compose service are not touched.
 - **Dependency removals are restricted.** Only `cachetools` and `types-cachetools` may be removed in this plan (Task 10). `flask`, `flask-admin`, `flask-security-too`, `flask-caching`, `flask-babel`, `flask-sqlalchemy`, `psycopg2-binary`, `gunicorn`, and `tablib` are still used by the admin panel and MUST remain.
-- **Python floor is 3.12.** `requires-python = ">=3.12,<4.0"`. Use modern syntax (`X | None`, `type` statements where useful).
+- **Python floor is 3.14** and is already set. `requires-python = ">=3.14,<4.0"`. Use modern syntax (`X | None`, `type` statements where useful).
+- **`unsafe-fixes` is off, deliberately.** It was `true`, and ruff 0.16 used it to move runtime-needed imports into `TYPE_CHECKING` blocks, breaking `get_type_hints()` on the aiogram filters. Do not turn it back on.
 - **Package manager is `uv`, never bare pip.** Use `uv add` / `uv sync` / `uv run`. Always run `uv sync` after editing `pyproject.toml`.
 - **Logging is loguru.** `from loguru import logger`. Never stdlib `logging` in new code.
 - **Ruff runs with `lint.select = ["ALL"]`, line length 120, and `fix = true` in config** — a bare `ruff check .` rewrites files. Always re-check `git diff` after linting.
@@ -53,12 +54,17 @@
 
 ---
 
-### Task 1: Dependencies, Python floor, and the verification harness
+### Task 1: Dependencies and the verification harness
+
+> **Already landed** (commit preceding this plan): the Python 3.14 floor,
+> `.python-version`, the uv 0.12 / Python 3.14 Docker images, the CI matrix,
+> `mypy` widened to the whole `bot` package, `ruff` 0.16.4 / `mypy` 2.3.1 /
+> `pre-commit` 4.6.2, `unsafe-fixes = false`, the uv-based `scripts/*`, and the
+> `uv-lock` pre-commit hook. Skip those steps below; they are kept for context.
 
 **Files:**
 - Modify: `pyproject.toml`
 - Create: `scripts/devstack`
-- Modify: `.github/workflows/linters.yml`
 
 **Interfaces:**
 - Consumes: nothing.

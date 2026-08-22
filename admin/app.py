@@ -1,6 +1,6 @@
 # ruff: noqa: RUF012
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from flask import Flask, abort, redirect, request, url_for
@@ -128,7 +128,7 @@ def get_user_count() -> int:
 
 
 def get_new_user_count(days_before: int = 1) -> int:
-    period_start = datetime.now(timezone.utc) - timedelta(days=days_before)
+    period_start = datetime.now(UTC) - timedelta(days=days_before)
     return db.session.query(AppUserModel).filter(AppUserModel.created_at >= period_start).count()
 
 
@@ -136,7 +136,7 @@ class CustomAdminIndexView(AdminIndexView):
     @expose("/")
     def index(self) -> str:
         days_before: int = 1
-        period_start = datetime.now(timezone.utc) - timedelta(days=days_before)
+        period_start = datetime.now(UTC) - timedelta(days=days_before)
         order_count = get_orders_count()
         user_count = get_user_count()
         new_user_count = get_new_user_count(days_before)
