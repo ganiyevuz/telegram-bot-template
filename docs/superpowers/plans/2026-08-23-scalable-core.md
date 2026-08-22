@@ -949,9 +949,13 @@ from .user import UserRepository
 __all__ = ["UserRepository"]
 ```
 
-- [ ] **Step 2: Rewrite `bot/utils/users_export.py` to stream**
+- [ ] **Step 2: Add a streaming export to `bot/utils/users_export.py`**
 
-The current version builds the entire CSV in a `StringIO` from a fully materialized list. Replace the file:
+The current version builds the entire CSV in a `StringIO` from a fully materialized list.
+**Add** the streaming functions below alongside the existing `convert_users_to_csv` — do NOT
+delete it here. `bot/handlers/export_users.py` still imports it and is loaded eagerly through
+`bot/handlers/__init__.py`, so removing it now is an ImportError at startup, not a runtime
+error. Task 8 deletes it in the same change that rewires the handler:
 
 ```python
 from __future__ import annotations
@@ -1244,6 +1248,7 @@ git commit -m "fix(services): make cache invalidation structural, fixing stale r
 - Create: `bot/core/lifespan.py`, `bot/entrypoints/__init__.py`, `bot/entrypoints/polling.py`, `bot/middlewares/types.py`, `bot/middlewares/analytics.py`
 - Modify: `bot/analytics/types.py`, `bot/middlewares/{__init__,auth,i18n,throttling}.py`, `bot/filters/admin.py`, `bot/handlers/{start,export_users}.py`, `bot/__main__.py`, `migrations/env.py`, `bot/core/di.py`
 - Delete: `bot/core/loader.py`, `bot/database/database.py`, `bot/middlewares/database.py`, `bot/cache/redis.py`, `bot/cache/serialization.py`, `bot/utils/singleton.py`, `bot/services/analytics.py`
+- Also delete, in the same change that rewires the handler: `convert_users_to_csv` from `bot/utils/users_export.py` (Task 6 deliberately left it in place because `bot/handlers/export_users.py` imports it eagerly)
 
 **Interfaces:**
 - Consumes: everything from Tasks 2-7.
