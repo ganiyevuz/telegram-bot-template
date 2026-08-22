@@ -1,0 +1,28 @@
+#!/bin/sh -e
+# Throwaway Postgres + Redis for local verification.
+#   eval "$(scripts/devstack up)"   # start and export DB_*/REDIS_* env vars
+#   scripts/devstack down           # remove containers
+PG=tbt-devstack-pg
+RD=tbt-devstack-redis
+
+case "$1" in
+  up)
+    docker rm -f $PG $RD >/dev/null 2>&1 || true
+    docker run -d --name $PG -e POSTGRES_PASSWORD=dev -e POSTGRES_USER=dev \
+      -e POSTGRES_DB=dev -p 55432:5432 postgres:14-alpine >/dev/null
+    docker run -d --name $RD -p 56379:6379 redis:7-alpine >/dev/null
+    i=0
+    while [ $i -lt 30 ]; do
+      docker exec $PG pg_isready -U dev >/dev/null 2>&1 && break
+      i=$((i+1)); sleep 1
+    done
+    echo "export DB_HOST=localhost DB_PORT=55432 DB_USER=dev DB_PASS=dev DB_NAME=dev"
+    echo "export REDIS_HOST=localhost REDIS_PORT=56379"
+    echo "export BOT_TOKEN=110201544:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+    ;;
+  down)
+    docker rm -f $PG $RD >/dev/null 2>&1 || true
+    echo "devstack down"
+    ;;
+  *) echo "usage: scripts/devstack up|down" >&2; exit 2 ;;
+esac
