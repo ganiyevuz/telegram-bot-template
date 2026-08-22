@@ -1,11 +1,10 @@
 from __future__ import annotations
+
+from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine.url import URL
 
 DIR = Path(__file__).absolute().parent.parent.parent
 BOT_DIR = Path(__file__).absolute().parent.parent
@@ -13,75 +12,92 @@ LOCALES_DIR = f"{BOT_DIR}/locales"
 I18N_DOMAIN = "messages"
 DEFAULT_LOCALE = "en"
 
-
-class EnvBaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=f"{DIR}/.env", env_file_encoding="utf-8", extra="ignore")
+_ENV = SettingsConfigDict(env_file=f"{DIR}/.env", env_file_encoding="utf-8", extra="ignore")
 
 
-class WebhookSettings(EnvBaseSettings):
-    USE_WEBHOOK: bool = False
-    WEBHOOK_BASE_URL: str = "https://xxx.ngrok-free.app"
-    WEBHOOK_PATH: str = "/webhook"
-    WEBHOOK_SECRET: str = ""
-    WEBHOOK_HOST: str = "localhost"
-    WEBHOOK_PORT: int = 8080
+class BotSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="BOT_")
 
-    @property
-    def webhook_url(self) -> str:
-        if settings.USE_WEBHOOK:
-            return f"{self.WEBHOOK_BASE_URL}{self.WEBHOOK_PATH}"
-        return f"http://localhost:{settings.WEBHOOK_PORT}{settings.WEBHOOK_PATH}"
+    token: SecretStr
+    support_url: str | None = Field(default=None, validation_alias="SUPPORT_URL")
+    rate_limit: float = Field(default=0.5, validation_alias="RATE_LIMIT")
 
 
-class BotSettings(WebhookSettings):
-    BOT_TOKEN: str
-    SUPPORT_URL: str | None = None
-    RATE_LIMIT: int | float = 0.5  # for throttling control
+class DatabaseSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="DB_")
 
-
-class DBSettings(EnvBaseSettings):
-    DB_HOST: str = "postgres"
-    DB_PORT: int = 5432
-    DB_USER: str = "postgres"
-    DB_PASS: str | None = None
-    DB_NAME: str = "postgres"
+    host: str = "postgres"
+    port: int = 5432
+    user: str = "postgres"
+    password: SecretStr | None = Field(default=None, validation_alias="DB_PASS")
+    name: str = "postgres"
+    pool_size: int = 10
+    max_overflow: int = 5
 
     @property
-    def database_url(self) -> URL | str:
-        if self.DB_PASS:
-            return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        return f"postgresql+asyncpg://{self.DB_USER}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    def url(self) -> str:
+        auth = self.user if self.password is None else f"{self.user}:{self.password.get_secret_value()}"
+        return f"postgresql+asyncpg://{auth}@{self.host}:{self.port}/{self.name}"
+
+
+class RedisSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="REDIS_")
+
+    host: str = "redis"
+    port: int = 6379
+    password: SecretStr | None = Field(default=None, validation_alias="REDIS_PASS")
+    db: int = 0
 
     @property
-    def database_url_psycopg2(self) -> str:
-        if self.DB_PASS:
-            return f"postgresql://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        return f"postgresql://{self.DB_USER}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    def url(self) -> str:
+        auth = "" if self.password is None else f":{self.password.get_secret_value()}@"
+        return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
-class CacheSettings(EnvBaseSettings):
-    REDIS_HOST: str = "redis"
-    REDIS_PORT: int = 6379
-    REDIS_PASS: str | None = None
+class WebhookSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="WEBHOOK_")
 
-    # REDIS_DATABASE: int = 1
-    # REDIS_USERNAME: int | None = None
-    # REDIS_TTL_STATE: int | None = None
-    # REDIS_TTL_DATA: int | None = None
+    enabled: bool = Field(default=False, validation_alias="USE_WEBHOOK")
+    base_url: str = "https://example.com"
+    path: str = "/webhook"
+    secret: str = ""
+    host: str = "0.0.0.0"  # noqa: S104
+    port: int = 8080
 
     @property
-    def redis_url(self) -> str:
-        if self.REDIS_PASS:
-            return f"redis://{self.REDIS_PASS}@{self.REDIS_HOST}:{self.REDIS_PORT}/0"
-        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+    def url(self) -> str:
+        return f"{self.base_url}{self.path}"
 
 
-class Settings(BotSettings, DBSettings, CacheSettings):
-    DEBUG: bool = False
+class AnalyticsSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV)
 
-    SENTRY_DSN: str | None = None
+    amplitude_api_key: str | None = Field(default=None, validation_alias="AMPLITUDE_API_KEY")
+    posthog_api_key: str | None = Field(default=None, validation_alias="POSTHOG_API_KEY")
+    flush_interval_seconds: int = Field(default=30, validation_alias="ANALYTICS_FLUSH_INTERVAL")
+    buffer_key: str = "analytics:buffer"
 
-    AMPLITUDE_API_KEY: str  # or for example it could be POSTHOG_API_KEY
+
+class ObservabilitySettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV)
+
+    sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
 
 
-settings = Settings()
+class Settings(BaseSettings):
+    model_config = _ENV
+
+    debug: bool = Field(default=False, validation_alias="DEBUG")
+
+    bot: BotSettings = Field(default_factory=BotSettings)
+    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
+    webhook: WebhookSettings = Field(default_factory=WebhookSettings)
+    analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
