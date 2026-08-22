@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
+from bot.database.repositories import UserRepository
 from bot.telegram.factory import create_bot
 
 
@@ -77,5 +78,20 @@ class AppProvider(Provider):
         return CacheService(redis)
 
 
+class RequestProvider(Provider):
+    """Per-update objects. The session is created only if something resolves it."""
+
+    scope = Scope.REQUEST
+
+    @provide
+    async def session(self, sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterable[AsyncSession]:
+        async with sessionmaker() as session:
+            yield session
+
+    @provide
+    def users(self, session: AsyncSession) -> UserRepository:
+        return UserRepository(session)
+
+
 def create_container(settings: Settings) -> AsyncContainer:
-    return make_async_container(AppProvider(settings))
+    return make_async_container(AppProvider(settings), RequestProvider())
