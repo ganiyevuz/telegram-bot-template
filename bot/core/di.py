@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from bot.analytics.amplitude import AmplitudeTelegramLogger
 from bot.analytics.types import AbstractAnalyticsLogger, NullAnalyticsLogger
+from bot.cache.ratelimit import TokenBucket
 from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import UserRepository
@@ -79,6 +80,11 @@ class AppProvider(Provider):
     @provide
     def cache(self, redis: Redis) -> CacheService:
         return CacheService(redis)
+
+    @provide
+    def throttle_bucket(self, redis: Redis, settings: Settings) -> TokenBucket:
+        rate = 1.0 / settings.bot.rate_limit if settings.bot.rate_limit > 0 else 1.0
+        return TokenBucket(redis, rate=rate, capacity=max(1.0, rate), name="throttle")
 
     @provide
     def analytics(self, settings: Settings) -> AbstractAnalyticsLogger:

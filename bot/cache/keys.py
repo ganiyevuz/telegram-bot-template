@@ -48,3 +48,7 @@ class CacheKeys:
     @classmethod
     def dedup(cls, update_id: int) -> str:
         return cls._key("dedup", update_id)
+
+    @classmethod
+    def throttle(cls, scope: str, ident: int | str) -> str:
+        return cls._key("throttle", scope, ident)

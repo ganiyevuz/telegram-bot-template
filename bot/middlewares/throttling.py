@@ -2,19 +2,28 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
-from cachetools import TTLCache
+from loguru import logger
+
+from bot.cache.keys import CacheKeys
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from aiogram.types import Chat, TelegramObject
+    from aiogram.types import TelegramObject
+
+    from bot.cache.ratelimit import TokenBucket
 
 
 class ThrottlingMiddleware(BaseMiddleware):
-    cache: TTLCache[int, Any]
+    """Per-user rate limiting shared across replicas.
 
-    def __init__(self, rate_limit: float) -> None:
-        self.cache = TTLCache(maxsize=10_000, ttl=rate_limit)
+    Keyed by user rather than chat, so members of a group do not consume each
+    other's allowance.
+    """
+
+    def __init__(self, bucket: TokenBucket) -> None:
+        self._bucket = bucket
+        super().__init__()
 
     async def __call__(
         self,
@@ -22,11 +31,12 @@ class ThrottlingMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        chat: Chat | None = getattr(event, "chat", None)
-        if not chat:
+        user = getattr(event, "from_user", None)
+        if user is None:
             return await handler(event, data)
 
-        if chat.id in self.cache:
+        if not await self._bucket.try_acquire(CacheKeys.throttle("user", user.id)):
+            logger.debug(f"throttled | user_id: {user.id}")
             return None
-        self.cache[chat.id] = None
+
         return await handler(event, data)

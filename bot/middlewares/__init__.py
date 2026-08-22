@@ -7,7 +7,7 @@ from aiogram.utils.i18n.core import I18n
 from redis.asyncio import Redis
 
 from bot.analytics.types import AbstractAnalyticsLogger
-from bot.core.config import Settings
+from bot.cache.ratelimit import TokenBucket
 
 if TYPE_CHECKING:
     from aiogram import Dispatcher
@@ -23,14 +23,14 @@ async def register_middlewares(dp: Dispatcher, container: AsyncContainer) -> Non
     from .logging import LoggingMiddleware  # noqa: PLC0415
     from .throttling import ThrottlingMiddleware  # noqa: PLC0415
 
-    settings = await container.get(Settings)
     i18n = await container.get(I18n)
     gateway = await container.get(AbstractAnalyticsLogger)
     redis = await container.get(Redis)
+    bucket = await container.get(TokenBucket)
 
     dp.update.outer_middleware(DedupMiddleware(redis))
     dp.update.outer_middleware(LoggingMiddleware())
-    dp.message.outer_middleware(ThrottlingMiddleware(settings.bot.rate_limit))
+    dp.message.outer_middleware(ThrottlingMiddleware(bucket))
 
     dp.message.middleware(AuthMiddleware())
     ACLMiddleware(i18n=i18n).setup(dp)
