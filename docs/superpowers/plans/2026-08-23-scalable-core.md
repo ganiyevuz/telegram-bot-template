@@ -2534,6 +2534,14 @@ and to `.env.example`:
 WEBHOOK_VERIFY_SOURCE_IP=True   # set False when a proxy rewrites the source address
 ```
 
+**Decide the failure status deliberately.** If `feed_update` raises — a Redis outage is the
+realistic case, since aiogram's `FSMContextMiddleware` queries Redis before any of our
+middlewares — an uncaught exception becomes HTTP 500, and Telegram responds to a 500 by
+retrying. During an outage that is a retry storm layered on top of the failure. Catch the
+exception, log it, and return 200 so Telegram does not retry (the update is lost, which is
+the lesser evil), or return 503 only if you have decided you *want* Telegram to retry. Either
+way make it an explicit, commented decision rather than an accident.
+
 The route returns immediately after `feed_update` so Telegram sees a fast 200. Slow work belongs in the TaskIQ tasks from Tasks 13-14, not here.
 
 - [ ] **Step 4: The API entrypoint**

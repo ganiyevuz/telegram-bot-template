@@ -135,7 +135,18 @@ Outermost first:
 Custom context keys are declared by extending aiogram's `MiddlewareData` TypedDict
 rather than untyped `data["..."]` access.
 
-**Deduplication must be step 1.** Telegram redelivers a webhook update when a
+**Deduplication runs as early as we control.** It cannot literally be first: aiogram
+registers `ErrorsMiddleware`, `UserContextMiddleware` and `FSMContextMiddleware` on
+`dp.update` at Dispatcher construction, and dishka's `ContainerMiddleware` follows, so dedup
+is position 4. That is fine for correctness — none of those four perform side effects that a
+redelivered update would duplicate. But note the consequence for availability: aiogram's
+`FSMContextMiddleware` queries Redis *before* dedup runs, so a Redis outage stops update
+processing regardless of how dedup handles errors. Redis is a hard dependency of this design
+(FSM state must be shared across replicas), and the webhook route in section 19 owns deciding
+what HTTP status to return when processing raises, so that an outage does not become a
+Telegram retry storm.
+
+**Deduplication must precede anything with side effects.** Telegram redelivers a webhook update when a
 response is slow, and behind a load balancer the retry reaches a different replica
 than the original. Without dedup that is a duplicated `/start`, broadcast opt-in, or
 payment. A `SET NX` guard makes handlers idempotent.
