@@ -1,24 +1,36 @@
-# ruff: noqa: TC002  - these annotations are resolved at runtime (aiogram inspects handler and filter signatures), so the imports must stay at module level
-from aiogram import Dispatcher
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from aiogram.utils.callback_answer import CallbackAnswerMiddleware
+from aiogram.utils.chat_action import ChatActionMiddleware
+from aiogram.utils.i18n.core import I18n
 
-from .auth import AuthMiddleware
-from .database import DatabaseMiddleware
-from .i18n import ACLMiddleware
-from .logging import LoggingMiddleware
-from .throttling import ThrottlingMiddleware
-from bot.core.loader import i18n as _i18n
+from bot.analytics.types import AbstractAnalyticsLogger
+from bot.core.config import Settings
+
+if TYPE_CHECKING:
+    from aiogram import Dispatcher
+    from dishka import AsyncContainer
 
 
-def register_middlewares(dp: Dispatcher) -> None:
-    dp.message.outer_middleware(ThrottlingMiddleware())
+async def register_middlewares(dp: Dispatcher, container: AsyncContainer) -> None:
+    """Register the update pipeline. Order is load-bearing — see spec section 7."""
+    from .analytics import AnalyticsMiddleware  # noqa: PLC0415
+    from .auth import AuthMiddleware  # noqa: PLC0415
+    from .i18n import ACLMiddleware  # noqa: PLC0415
+    from .logging import LoggingMiddleware  # noqa: PLC0415
+    from .throttling import ThrottlingMiddleware  # noqa: PLC0415
+
+    settings = await container.get(Settings)
+    i18n = await container.get(I18n)
+    gateway = await container.get(AbstractAnalyticsLogger)
 
     dp.update.outer_middleware(LoggingMiddleware())
-
-    dp.update.outer_middleware(DatabaseMiddleware())
+    dp.message.outer_middleware(ThrottlingMiddleware(settings.bot.rate_limit))
 
     dp.message.middleware(AuthMiddleware())
-
-    ACLMiddleware(i18n=_i18n).setup(dp)
-
+    ACLMiddleware(i18n=i18n).setup(dp)
+    dp.message.middleware(AnalyticsMiddleware(gateway))
+    dp.callback_query.middleware(AnalyticsMiddleware(gateway))
+    dp.message.middleware(ChatActionMiddleware())
     dp.callback_query.middleware(CallbackAnswerMiddleware())

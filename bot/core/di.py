@@ -11,6 +11,8 @@ from dishka import AsyncContainer, Provider, Scope, make_async_container, provid
 from redis.asyncio import ConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from bot.analytics.amplitude import AmplitudeTelegramLogger
+from bot.analytics.types import AbstractAnalyticsLogger, NullAnalyticsLogger
 from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import UserRepository
@@ -77,6 +79,12 @@ class AppProvider(Provider):
     @provide
     def cache(self, redis: Redis) -> CacheService:
         return CacheService(redis)
+
+    @provide
+    def analytics(self, settings: Settings) -> AbstractAnalyticsLogger:
+        if settings.analytics.amplitude_api_key:
+            return AmplitudeTelegramLogger(api_token=settings.analytics.amplitude_api_key)
+        return NullAnalyticsLogger()
 
 
 class RequestProvider(Provider):

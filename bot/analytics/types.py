@@ -75,3 +75,10 @@ class AbstractAnalyticsLogger(ABC):
     @abstractmethod
     async def log_event(self, event: BaseEvent) -> None:
         pass
+
+
+class NullAnalyticsLogger(AbstractAnalyticsLogger):
+    """Used when no analytics provider is configured."""
+
+    async def log_event(self, event: BaseEvent) -> None:  # noqa: ARG002 - signature fixed by the interface
+        return None

@@ -4,8 +4,6 @@ from typing import TYPE_CHECKING, Any
 from aiogram import BaseMiddleware
 from cachetools import TTLCache
 
-from bot.core.config import settings
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -15,7 +13,7 @@ if TYPE_CHECKING:
 class ThrottlingMiddleware(BaseMiddleware):
     cache: TTLCache[int, Any]
 
-    def __init__(self, rate_limit: float = settings.RATE_LIMIT) -> None:
+    def __init__(self, rate_limit: float) -> None:
         self.cache = TTLCache(maxsize=10_000, ttl=rate_limit)
 
     async def __call__(
