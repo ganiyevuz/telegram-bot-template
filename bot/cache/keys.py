@@ -44,3 +44,7 @@ class CacheKeys:
             cls.user_first_name(user_id),
             cls.user_is_admin(user_id),
         ]
+
+    @classmethod
+    def dedup(cls, update_id: int) -> str:
+        return cls._key("dedup", update_id)
