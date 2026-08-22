@@ -11,6 +11,7 @@ from dishka import AsyncContainer, Provider, Scope, make_async_container, provid
 from redis.asyncio import ConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.telegram.factory import create_bot
 
@@ -70,6 +71,10 @@ class AppProvider(Provider):
     @provide
     def i18n(self) -> I18n:
         return I18n(path=LOCALES_DIR, default_locale=DEFAULT_LOCALE, domain=I18N_DOMAIN)
+
+    @provide
+    def cache(self, redis: Redis) -> CacheService:
+        return CacheService(redis)
 
 
 def create_container(settings: Settings) -> AsyncContainer:
