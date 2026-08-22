@@ -92,7 +92,7 @@ def prometheus_middleware_factory(
             response = await handler(request)
             request_end_time = loop.time()
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             request_end_time = loop.time()
             status = e.status if isinstance(e, HTTPException) else 500
 
