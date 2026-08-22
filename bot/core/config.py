@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 
@@ -36,7 +35,10 @@ class DatabaseSettings(BaseSettings):
 
     @property
     def url(self) -> str:
-        auth = self.user if self.password is None else f"{self.user}:{self.password.get_secret_value()}"
+        if not self.password or not self.password.get_secret_value():
+            auth = self.user
+        else:
+            auth = f"{self.user}:{self.password.get_secret_value()}"
         return f"postgresql+asyncpg://{auth}@{self.host}:{self.port}/{self.name}"
 
 
@@ -50,7 +52,10 @@ class RedisSettings(BaseSettings):
 
     @property
     def url(self) -> str:
-        auth = "" if self.password is None else f":{self.password.get_secret_value()}@"
+        if not self.password or not self.password.get_secret_value():
+            auth = ""
+        else:
+            auth = f":{self.password.get_secret_value()}@"
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
@@ -60,7 +65,7 @@ class WebhookSettings(BaseSettings):
     enabled: bool = Field(default=False, validation_alias="USE_WEBHOOK")
     base_url: str = "https://example.com"
     path: str = "/webhook"
-    secret: str = ""
+    secret: SecretStr = SecretStr("")
     host: str = "0.0.0.0"  # noqa: S104
     port: int = 8080
 
