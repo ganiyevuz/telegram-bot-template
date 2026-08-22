@@ -1581,12 +1581,17 @@ async def lifespan(settings: Settings) -> AsyncIterator[AppContext]:
     _setup_sentry(settings)
 
     container = create_container(settings)
-    bot = await container.get(Bot)
-    dp = await build_dispatcher(container)
-
-    info = await bot.get_me()
-    logger.info(f"bot started | @{info.username} | id: {info.id}")
+    # The try MUST open here, not after get_me(). If get_me() or
+    # build_dispatcher() raises, container.close() never runs and the engine,
+    # Redis pool and bot session all leak. Latent under polling (the process
+    # dies anyway), but Task 12 runs this under uvicorn, where a Telegram blip
+    # at startup leaks a pool per failed start.
     try:
+        bot = await container.get(Bot)
+        dp = await build_dispatcher(container)
+
+        info = await bot.get_me()
+        logger.info(f"bot started | @{info.username} | id: {info.id}")
         yield AppContext(container=container, bot=bot, dp=dp)
     finally:
         logger.info("shutting down")
@@ -2298,6 +2303,20 @@ In `bot/middlewares/__init__.py`, register metrics right after logging:
     dp.update.outer_middleware(MetricsMiddleware())
 ```
 
+**Also fix a resource leak in `lifespan()` while you are in this file.** The container is
+created *before* the `try:`, so if `container.get(Bot)`, `build_dispatcher()` or
+`bot.get_me()` raises, `container.close()` never runs and the engine, Redis pool and bot
+session leak. Move the `try:` up so it opens immediately after `create_container(...)`, with
+the `bot`/`dp`/`get_me()` lines inside it. Latent under polling; a leak per failed start once
+Task 12 runs this under uvicorn.
+
+**And correct the misleading docstring in `bot/middlewares/__init__.py`.** It says the
+registration order is load-bearing, which reads as if line position controls runtime order.
+It does not: aiogram runs every OUTER middleware before any INNER one, and aiogram's own
+`I18nMiddleware.setup()` registers ACL as OUTER while `AuthMiddleware` is INNER — so i18n
+actually resolves the locale BEFORE auth registers the user. Say that explicitly so Tasks
+10-15 do not plan from a false model.
+
 In `bot/core/lifespan.py`, inside `build_dispatcher`, after `dp.include_router(get_handlers_router())`:
 
 ```python
@@ -2564,6 +2583,14 @@ def create_app() -> FastAPI:
 
 app = create_app()
 ```
+
+**Re-activate `USE_WEBHOOK` and guard the polling entrypoint.** After Task 8 the setting has
+no consumer at all, while `.env.example` and the README still advertise it and
+`bot/entrypoints/polling.py` calls `delete_webhook(...)` unconditionally — so an operator
+setting `USE_WEBHOOK=True` silently loses their webhook registration and gets polling, which
+past one replica is a 409 Conflict loop on the shared token. This task makes the setting live
+for the API process; it must also make `polling.py` refuse to start (or log a loud warning and
+skip `delete_webhook`) when `settings.webhook.enabled` is true.
 
 `set_webhook` is **not** called with `drop_pending_updates=True`, and `delete_webhook` is not called on shutdown. Both matter with N replicas: every replica runs this lifespan, and dropping updates or removing the webhook during a rolling deploy would discard traffic the other replicas are still serving.
 
