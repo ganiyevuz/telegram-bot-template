@@ -726,7 +726,7 @@ class CacheKeys:
 ```python
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import orjson
 from loguru import logger
@@ -736,7 +736,8 @@ from bot.cache.keys import CacheKeys
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-T = TypeVar("T", bound=bool | int | float | str | list | dict)
+# Bare `list`/`dict` here trip this project's `disallow_any_generics = true`.
+T = TypeVar("T", bound=bool | int | float | str | list[Any] | dict[str, Any])
 
 DEFAULT_TTL = 60
 
