@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import UserModel
 
@@ -25,7 +26,14 @@ class UserRepository:
         query = select(UserModel.id).filter_by(id=user_id).limit(1)
         return (await self._session.execute(query)).scalar_one_or_none() is not None
 
-    async def create(self, user: TgUser, referrer: str | None) -> UserModel:
+    async def create(self, user: TgUser, referrer: str | None) -> UserModel | None:
+        """Insert a new user row.
+
+        Returns None, with the session rolled back, if another writer (a
+        concurrent request on this or another replica) inserted the same id
+        first — the caller should treat that as "already registered", not
+        raise it.
+        """
         new_user = UserModel(
             id=user.id,
             first_name=user.first_name,
@@ -36,7 +44,11 @@ class UserRepository:
             referrer=referrer,
         )
         self._session.add(new_user)
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            return None
         return new_user
 
     async def language_of(self, user_id: int) -> str | None:

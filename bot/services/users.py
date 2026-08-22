@@ -21,7 +21,15 @@ class UserService:
         self._cache = cache
 
     async def ensure_registered(self, tg_user: TgUser, referrer: str | None) -> bool:
-        """Register the user if new. Returns True when a row was created."""
+        """Register the user if new. Returns True when a row was created.
+
+        `exists()` then `create()` is a check-then-act race: on concurrent
+        first contact (e.g. two replicas handling near-simultaneous updates
+        for the same new user) more than one caller can pass the `exists`
+        check before either has committed. `UserRepository.create()` lets
+        Postgres's primary key be the single source of truth and reports
+        back which side lost the race, so only the winner returns True.
+        """
         key = CacheKeys.user_exists(tg_user.id)
         if await self._cache.get(key, bool):
             return False
@@ -29,7 +37,12 @@ class UserService:
             await self._cache.set(key, value=True, ttl=USER_TTL)
             return False
 
-        await self._users.create(tg_user, referrer)
+        created = await self._users.create(tg_user, referrer)
+        if created is None:
+            # Lost the race: another request already inserted this user.
+            await self._cache.set(key, value=True, ttl=USER_TTL)
+            return False
+
         await self._cache.invalidate_user(tg_user.id)
         await self._cache.set(key, value=True, ttl=USER_TTL)
         return True
