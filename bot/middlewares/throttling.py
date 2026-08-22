@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
 from loguru import logger
+from redis.exceptions import RedisError
 
 from bot.cache.keys import CacheKeys
 
@@ -35,7 +36,20 @@ class ThrottlingMiddleware(BaseMiddleware):
         if user is None:
             return await handler(event, data)
 
-        if not await self._bucket.try_acquire(CacheKeys.throttle("user", user.id)):
+        try:
+            granted = await self._bucket.try_acquire(CacheKeys.throttle("user", user.id))
+        except RedisError as exc:
+            # Fail OPEN: Redis is unavailable, so we cannot tell whether this user is over
+            # their limit. Letting the update through is the lesser evil — raising here
+            # would, in webhook mode, return HTTP 500, which makes Telegram retry and turns
+            # a Redis blip into a retry storm; in polling mode aiogram would silently drop
+            # the update instead. Either way an outage degrades to unthrottled, not silent.
+            # A bot enforcing hard quotas (billing, abuse limits) may prefer fail-closed:
+            # re-raise instead.
+            logger.warning(f"throttle unavailable, processing without it | user_id: {user.id} | error: {exc}")
+            return await handler(event, data)
+
+        if not granted:
             logger.debug(f"throttled | user_id: {user.id}")
             return None
 
