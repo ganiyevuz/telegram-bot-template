@@ -60,3 +60,13 @@ class CacheKeys:
     @classmethod
     def outbound(cls, scope: str, ident: int | str) -> str:
         return cls._key("outbound", scope, ident)
+
+    @classmethod
+    def notify(cls, fingerprint: str) -> str:
+        """Cooldown marker. Present = an alert with this fingerprint was sent recently."""
+        return cls._key("notify", fingerprint)
+
+    @classmethod
+    def notify_count(cls, fingerprint: str) -> str:
+        """How many alerts this fingerprint swallowed during the current cooldown."""
+        return cls._key("notify", fingerprint, "count")

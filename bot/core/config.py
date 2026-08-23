@@ -125,6 +125,25 @@ class AdminSettings(BaseSettings):
     )
 
 
+class NotifierSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="NOTIFIER_")
+
+    # Telegram chat to receive operational alerts. Deliberately unset by default: this
+    # is the notifier's off switch — with no chat configured, sending an alert must be a
+    # silent no-op rather than an error. An operator who has not set up alerting should
+    # not receive a stream of failures *about* alerting.
+    chat_id: int | None = None
+    # Optional forum topic (message thread) within chat_id to post alerts into.
+    topic_id: int | None = None
+    # HMAC key authenticating POST /api/notify. Deliberately empty by default: unlike
+    # ADMIN_SECRET_KEY, an empty value here does not fall back to "unauthenticated" —
+    # it disables the endpoint outright.
+    secret: SecretStr = SecretStr("")
+    # Minimum seconds between two alerts sharing the same fingerprint; repeats within
+    # the window are counted and rolled into the next delivered alert's "suppressed" tail.
+    cooldown_seconds: int = 300
+
+
 class AnalyticsSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV)
 
@@ -153,6 +172,7 @@ class Settings(BaseSettings):
     payments: PaymentSettings = Field(default_factory=PaymentSettings)
     webapp: WebAppSettings = Field(default_factory=WebAppSettings)
     admin: AdminSettings = Field(default_factory=AdminSettings)
+    notifier: NotifierSettings = Field(default_factory=NotifierSettings)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
