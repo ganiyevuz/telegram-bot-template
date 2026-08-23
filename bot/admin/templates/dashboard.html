@@ -1,0 +1,27 @@
+{% extends "sqladmin/layout.html" %}
+{% block content_header %}
+<div class="row align-items-center">
+  <div class="col">
+    <h2 class="page-title">Dashboard</h2>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="col-sm-6 col-lg-3">
+  <div class="card">
+    <div class="card-body">
+      <div class="subheader">Total users</div>
+      <div class="h1 m-0">{{ total_users }}</div>
+    </div>
+  </div>
+</div>
+<div class="col-sm-6 col-lg-3">
+  <div class="card">
+    <div class="card-body">
+      <div class="subheader">New users (last {{ window_days }} day{{ "s" if window_days != 1 }})</div>
+      <div class="h1 m-0">{{ new_users }}</div>
+      <div class="text-secondary">since {{ since.strftime("%Y-%m-%d %H:%M UTC") }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
