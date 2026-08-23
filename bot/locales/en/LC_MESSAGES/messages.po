@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 12:22+0500\n"
+"POT-Creation-Date: 2026-08-23 12:31+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -51,7 +51,7 @@ msgstr "ℹ️ <b>About</b>"
 msgid "support text"
 msgstr "🤝 Support"
 
-#: bot/handlers/callbacks.py:51 bot/handlers/menu.py:13
+#: bot/handlers/callbacks.py:51 bot/handlers/menu.py:17
 msgid "title main keyboard"
 msgstr "📒 <b>Menu</b>."
 
@@ -88,7 +88,7 @@ msgstr "✅ Subscription renewed, premium is active."
 msgid "payment received, premium is active"
 msgstr "✅ Payment received, premium is active."
 
-#: bot/handlers/start.py:14
+#: bot/handlers/start.py:18
 msgid "first message"
 msgstr ""
 "👋 <b>Welcome to the bot.</b>\n"
@@ -96,7 +96,7 @@ msgstr ""
 "To start using the bot you can start with /menu"
 
 #: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
-#: bot/keyboards/inline/menu.py:14
+#: bot/keyboards/inline/menu.py:23
 msgid "support button"
 msgstr "Support"
 
@@ -104,17 +104,21 @@ msgstr "Support"
 msgid "back button"
 msgstr "🔙 Back"
 
-#: bot/keyboards/inline/menu.py:11
+#: bot/keyboards/inline/menu.py:20
 msgid "wallet button"
 msgstr "👛 Wallet"
 
-#: bot/keyboards/inline/menu.py:12
+#: bot/keyboards/inline/menu.py:21
 msgid "premium button"
 msgstr "🆙 Get PREMIUM"
 
-#: bot/keyboards/inline/menu.py:13
+#: bot/keyboards/inline/menu.py:22
 msgid "info button"
 msgstr "Info"
+
+#: bot/keyboards/inline/menu.py:28
+msgid "mini app button"
+msgstr "🚀 Open Mini App"
 
 #: bot/services/payments.py:75
 msgid "payment error: unknown product"

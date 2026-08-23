@@ -71,6 +71,24 @@
     uv run alembic upgrade head
     ```
 
+## 📱 Mini App
+
+The bot ships a **demo** Mini App at `bot/webapp/static/index.html`, served by the webhook
+entrypoint at `GET /webapp` and backed by `GET /api/webapp/me` and `POST /api/webapp/invoice`
+(both authenticated by the `initData` signature). It is a single dependency-free page with no
+build step, npm or framework — it exists to prove the launch → authenticate → pay loop works end
+to end, and is meant to be **replaced** with your own front end.
+
+Point `WEBAPP_URL` at the page and register the same URL with [@BotFather](https://t.me/BotFather)
+(`/newapp`). Two things about that URL:
+
+-   Telegram **will not load a Mini App over plain HTTP** — the URL must be HTTPS.
+-   `localhost` resolves to the phone itself on mobile clients, so it never reaches your machine.
+    Expose the port through a tunnel (`cloudflared`, `ngrok`, ...) for local testing.
+
+With `WEBAPP_URL` unset the launch button is simply omitted from the main menu — Telegram rejects
+a `web_app` button with an empty URL and drops the whole keyboard with it.
+
 ## 🌍 Environment variables
 
 to launch the bot you only need a token bot, database and redis settings, everything else can be left out
@@ -87,6 +105,7 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 | `WEBHOOK_VERIFY_SOURCE_IP` | Reject webhook requests not sourced from Telegram's published IP ranges (`True`/`False`)  |
 | `WEBHOOK_HOST`           | Hostname or IP address for the main application                                             |
 | `WEBHOOK_PORT`           | Port number for the main application                                                        |
+| `WEBAPP_URL`             | Public HTTPS URL of the Mini App page (must be HTTPS; omitting it hides the launch button)  |
 | `ADMIN_HOST`             | Hostname or IP address for the admin panel                                                  |
 | `ADMIN_PORT`             | Port number for the admin panel                                                             |
 | `DEFAULT_ADMIN_EMAIL`    | Default email for the admin user                                                            |

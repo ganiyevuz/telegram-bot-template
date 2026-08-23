@@ -87,6 +87,12 @@ class PaymentSettings(BaseSettings):
 class WebAppSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV, env_prefix="WEBAPP_")
 
+    # Public HTTPS URL of the Mini App page. Telegram refuses to load a Mini App over
+    # plain HTTP, and `localhost` resolves to the phone itself on mobile clients — use a
+    # tunnel (cloudflared, ngrok, ...) for local testing. Left unset the launch button is
+    # omitted from the menu entirely: `WebAppInfo(url="")` is rejected by Telegram and
+    # takes the *whole* keyboard down with it, not just that one button.
+    url: str | None = Field(default=None, validation_alias="WEBAPP_URL")
     init_data_max_age_seconds: int = Field(default=86400, validation_alias="WEBAPP_INIT_DATA_MAX_AGE")
 
 

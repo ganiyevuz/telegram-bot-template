@@ -17,7 +17,7 @@ from bot.webapp import routes as webapp_routes
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-# Task 10 replaces the placeholder page; the mount only needs the directory to exist.
+# The bundled demo Mini App page; replace its contents with your own front end.
 WEBAPP_STATIC_DIR = f"{BOT_DIR}/webapp/static"
 
 

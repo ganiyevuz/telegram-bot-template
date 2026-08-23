@@ -37,8 +37,8 @@ async def _edit_or_answer(query: CallbackQuery, text: str, reply_markup: InlineK
 
 
 @router.callback_query(MenuCB.filter(F.action == "info"))
-async def info_callback(query: CallbackQuery) -> None:
-    await _edit_or_answer(query, _("about"), main_keyboard())
+async def info_callback(query: CallbackQuery, settings: FromDishka[Settings]) -> None:
+    await _edit_or_answer(query, _("about"), main_keyboard(settings.webapp.url))
 
 
 @router.callback_query(MenuCB.filter(F.action == "support"))
@@ -47,8 +47,8 @@ async def support_callback(query: CallbackQuery, settings: FromDishka[Settings])
 
 
 @router.callback_query(MenuCB.filter(F.action == "back"))
-async def back_callback(query: CallbackQuery) -> None:
-    await _edit_or_answer(query, _("title main keyboard"), main_keyboard())
+async def back_callback(query: CallbackQuery, settings: FromDishka[Settings]) -> None:
+    await _edit_or_answer(query, _("title main keyboard"), main_keyboard(settings.webapp.url))
 
 
 @router.callback_query(MenuCB.filter(F.action == "wallet"))
