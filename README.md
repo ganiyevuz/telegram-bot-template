@@ -236,7 +236,10 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 │
 ├── configs # Config folder for Monitoring (Prometheus, Node-exporter and Grafana)
 │   ├── grafana # Configuration files for Grafana
-│   │   └── datasource.yml
+│   │   ├── dashboards/local.yml # Provisioning: scan /var/lib/grafana/dashboards
+│   │   ├── datasources/datasource.yml # Provisioning: the Prometheus datasource
+│   │   ├── node-exporter.json # Dashboard: host CPU, memory, disk and network
+│   │   └── tgbot.json # Dashboard: the bot's own tgbot_* metrics
 │   └── prometheus # Configuration files for Prometheus
 │       └── prometheus.yml
 │

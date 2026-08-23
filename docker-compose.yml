@@ -330,7 +330,11 @@ services:
     volumes:
       - ./configs/grafana/datasources:/etc/grafana/provisioning/datasources
       - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      # The dashboards provider (configs/grafana/dashboards/local.yml) scans this
+      # directory, but it is inside the grafana-data volume — so every dashboard JSON
+      # needs its own line here or it never reaches the container. Add one per file.
       - ./configs/grafana/node-exporter.json:/var/lib/grafana/dashboards/node-exporter.json
+      - ./configs/grafana/tgbot.json:/var/lib/grafana/dashboards/tgbot.json
       - grafana-data:/var/lib/grafana
     user: "0"
 
