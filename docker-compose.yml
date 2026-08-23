@@ -18,8 +18,31 @@ services:
       - app
       - monitoring
     depends_on:
-      - pgbouncer
-      - redis
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Migrations run to completion before the application that reads the schema starts.
+      # `restart: "on-failure"` on the migrator is compatible with this condition: it
+      # retries until it exits 0, and only then is this gate released.
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      # /health/live only — "is this process up", which is what a container healthcheck is
+      # for. /health/ready checks Postgres and Redis, so using it here would take the
+      # container unhealthy during a database blip and make Docker restart a process that
+      # is fine. The image is Alpine-based: it has busybox `wget`, not `curl`.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health/live >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Docker's default is 10s. uvicorn stops accepting connections on SIGTERM and waits
+    # for in-flight requests to finish; the worker finishes the task it is executing. A
+    # SIGKILL midway through `PaymentService.record` would abort the transaction —
+    # recoverable, since the payment insert only flushes and the credit commits them
+    # together — but a SIGKILL between `refund_star_payment` and the local write is not.
+    stop_grace_period: 30s
 
   worker:
     image: bot:latest
@@ -33,8 +56,30 @@ services:
     networks:
       - app
     depends_on:
-      - pgbouncer
-      - redis
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      # There is no HTTP surface here. Assert the two things a worker actually needs: that
+      # the app imports, and that the Redis the broker consumes from answers — reached
+      # through the app's own settings, so a misconfigured REDIS_* shows up as unhealthy.
+      # Deliberately NOT `broker.<something>.ping()`: `ListQueueBroker` exposes no public
+      # client attribute, so reaching into its internals would make this healthcheck a
+      # hostage to a taskiq-redis refactor.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import asyncio;from redis.asyncio import Redis;from bot.core.config import get_settings;
+          asyncio.run(Redis.from_url(get_settings().redis.url).ping())" || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Same 30s as `api`, for the same reason — see the comment there.
+    stop_grace_period: 30s
     # Safe to scale: `docker compose up -d --scale worker=3`. The broker is a Redis
     # list, so consumers compete for jobs rather than duplicating them. No
     # container_name — a fixed name makes the service unscalable.
@@ -51,7 +96,29 @@ services:
     networks:
       - app
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Same check as `worker` — the scheduler's only dependency is the Redis it enqueues
+      # into, and the app has to import for it to have any cron labels to read at all.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import asyncio;from redis.asyncio import Redis;from bot.core.config import get_settings;
+          asyncio.run(Redis.from_url(get_settings().redis.url).ping())" || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Same 30s as `api`, for the same reason — see the comment there.
+    stop_grace_period: 30s
+    # SIGINT, not Docker's default SIGTERM. `taskiq/cli/worker/run.py` installs handlers for
+    # both, but the *scheduler* CLI installs none: it only unwinds through the
+    # `except asyncio.CancelledError` in `taskiq/cli/scheduler/run.py`, which is what a
+    # KeyboardInterrupt gets it. On SIGTERM it ignores the signal, sits out the whole
+    # `stop_grace_period` and is SIGKILLed (exit 137) with the current tick still in flight;
+    # on SIGINT it logs "Scheduler shut down. Good bye!" and exits 0 in under a second.
+    stop_signal: SIGINT
     # EXACTLY ONE INSTANCE. Never scale this service. `bot/entrypoints/scheduler.py`
     # says so in its own docstring: every replica reads the same cron labels and
     # enqueues its own copy of each job at each tick. `payments:expire_premium` is
@@ -76,6 +143,14 @@ services:
       - app
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # `$$` is required: a single `$` is interpolated by Compose before the container ever
+      # sees it, so `-U $DB_USER` would become `-U ` and check the wrong thing silently.
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   pgbouncer:
     image: edoburu/pgbouncer
@@ -106,9 +181,19 @@ services:
     ports:
       - ${DB_PORT}:5432
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - app
+    healthcheck:
+      # Against the pooler itself on its own listen port, not against Postgres: this has to
+      # answer "can a client get a connection through pgbouncer", which is what every
+      # service downstream of it actually needs.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U $${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 
   pgbackup:
@@ -119,8 +204,12 @@ services:
       - backups-data:/backups
     networks:
       - app
+    # Same reason as the migrator: a backup job that starts before the database accepts
+    # connections just fails its first run. (This image ships its own HEALTHCHECK, so it
+    # needs none here.)
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${DB_NAME}
@@ -149,6 +238,18 @@ services:
     volumes:
       - redis-data:/bitnami/redis/data
     command: /bin/sh -c 'if [ -n "$REDIS_PASS" ]; then redis-server --requirepass "$REDIS_PASS"; else redis-server; fi'
+    healthcheck:
+      # Mirrors the `command:` above, and for the same reason: with REDIS_PASS set, a bare
+      # `redis-cli ping` answers `NOAUTH Authentication required`, the grep fails, and redis
+      # never turns healthy — which would leave every service gated on it stuck forever.
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -n "$$REDIS_PASS" ]; then redis-cli --no-auth-warning -a "$$REDIS_PASS" ping;
+          else redis-cli ping; fi | grep -q PONG
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   migrator:
     image: bot:latest
@@ -161,6 +262,12 @@ services:
       - app
     volumes:
       - ./migrations:/usr/src/app/migrations
+    # Migrations wait for the database, not for the application. (This service used to
+    # declare `depends_on: [bot]` — it waited for the app before migrating, which is
+    # backwards; `api` and `worker` now wait for *it* instead.)
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
 
   # MONITORING
   node-exporter:
