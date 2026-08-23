@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from bot.database.models import PaymentModel, PaymentStatus
+from bot.database.models import PaymentModel, PaymentStatus, UserModel
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,3 +120,34 @@ class PaymentRepository:
             .limit(1)
         )
         return (await self._session.execute(query)).scalar_one_or_none()
+
+    async def expire_premium(self) -> list[int]:
+        """Clear `is_premium` for users with no unexpired paid period left.
+
+        One statement rather than a read-then-write loop: this runs on a schedule
+        across several replicas, and a loop would race with itself. Returns the
+        cleared user ids (rather than a bare count) so the caller can invalidate
+        each user's cache entry — `UserService.is_premium()` reads through Redis,
+        so a sweep that updates Postgres but not the cache would keep serving
+        `True` until the TTL lapses.
+        """
+        now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+        still_paid = (
+            select(PaymentModel.id)
+            .where(
+                PaymentModel.user_id == UserModel.id,
+                PaymentModel.status == PaymentStatus.PAID,
+                PaymentModel.subscription_expires_at.is_not(None),
+                PaymentModel.subscription_expires_at > now,
+            )
+            .exists()
+        )
+        stmt = (
+            update(UserModel)
+            .where(UserModel.is_premium.is_(True), ~still_paid)
+            .values(is_premium=False)
+            .returning(UserModel.id)
+        )
+        expired = list((await self._session.execute(stmt)).scalars())
+        await self._session.commit()
+        return expired
