@@ -67,6 +67,23 @@ cron fires twice. `payments:expire_premium` is idempotent and `payments:reconcil
 so today the visible damage would be duplicate work and duplicate alerts — but `broadcast:start`
 is neither, and a second scheduler would fan the same broadcast out to every user twice.
 
+**pgbouncer runs in transaction pooling mode** (`POOL_MODE=transaction`), which is what makes
+that scaling safe. A server connection is held only for the duration of a transaction, so three
+`worker` replicas holding 15 client connections each do not turn into 45 Postgres backends:
+`DEFAULT_POOL_SIZE=20` caps the pool and `MAX_DB_CONNECTIONS=50` is a real global ceiling
+(not `0`, which means unlimited), both below Postgres's own `max_connections` — 100 by default —
+with headroom for the migrator and a `psql` session. Measured on this stack under a saturating
+load: one replica held 15 backends and three replicas held 20; the same load through
+`POOL_MODE=session` held 40.
+
+That mode is one half of a pair, and neither half survives being "cleaned up" on its own. Because
+a server connection moves between clients between transactions, server-side prepared statements
+cannot be reused, so the engine in `bot/core/di.py` is built with
+`connect_args={"statement_cache_size": 0, "prepared_statement_cache_size": 0}`. Re-enable either
+cache and asyncpg starts raising `DuplicatePreparedStatementError` / `InvalidSQLStatementNameError`
+under concurrency; move pgbouncer back to `session` and the Postgres connection count multiplies
+by replica count again, which is the thing pgbouncer is in the stack to prevent.
+
 -   configure environment variables in `.env` file
 
     Port variables are **host** bindings only — the container ports are pinned in
@@ -244,7 +261,7 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 -   `uv` — development workflow
 -   `docker` — to automate deployment
 -   `postgres` — powerful, open source object-relational database system
--   `pgbouncer` — connection pooler for PostgreSQL database
+-   `pgbouncer` — connection pooler for PostgreSQL database, in transaction pooling mode
 -   `redis` — in-memory data structure store used as a cache and FSM
 -   `prometheus` — time series database for collecting metrics from various systems
 -   `grafana` — visualization and analysis from various sources, including Prometheus
