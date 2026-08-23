@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 04:55+0500\n"
+"POT-Creation-Date: 2026-08-23 05:49+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -18,14 +18,26 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: bot/handlers/errors.py:43 bot/handlers/errors.py:45
+#: bot/handlers/broadcast.py:28
+msgid "usage: /broadcast <text>"
+msgstr "usage: /broadcast <text>"
+
+#: bot/handlers/broadcast.py:39 bot/handlers/export_users.py:32
+msgid "could not queue, try again later"
+msgstr "could not queue, try again later"
+
+#: bot/handlers/broadcast.py:41
+#, python-brace-format
+msgid "broadcast queued: <code>{id}</code>"
+msgstr "broadcast queued: <code>{id}</code>"
+
+#: bot/handlers/errors.py:41 bot/handlers/errors.py:43
 msgid "something went wrong"
 msgstr "⚠️ Something went wrong. Please try again."
 
-#: bot/handlers/export_users.py:29
-#, python-brace-format
-msgid "user counter: <b>{count}</b>"
-msgstr "user counter: <b>{count}</b>"
+#: bot/handlers/export_users.py:34
+msgid "export queued"
+msgstr "export queued"
 
 #: bot/handlers/info.py:11
 msgid "about"
@@ -66,4 +78,7 @@ msgstr "🆙 Get PREMIUM"
 #: bot/keyboards/inline/menu.py:11
 msgid "info button"
 msgstr "Info"
+
+#~ msgid "user counter: <b>{count}</b>"
+#~ msgstr "user counter: <b>{count}</b>"
 

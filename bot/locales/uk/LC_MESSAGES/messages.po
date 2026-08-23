@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 04:55+0500\n"
+"POT-Creation-Date: 2026-08-23 05:49+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: uk\n"
@@ -19,14 +19,26 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: bot/handlers/errors.py:43 bot/handlers/errors.py:45
+#: bot/handlers/broadcast.py:28
+msgid "usage: /broadcast <text>"
+msgstr "використання: /broadcast <текст>"
+
+#: bot/handlers/broadcast.py:39 bot/handlers/export_users.py:32
+msgid "could not queue, try again later"
+msgstr "не вдалося поставити в чергу, спробуйте пізніше"
+
+#: bot/handlers/broadcast.py:41
+#, python-brace-format
+msgid "broadcast queued: <code>{id}</code>"
+msgstr "розсилку поставлено в чергу: <code>{id}</code>"
+
+#: bot/handlers/errors.py:41 bot/handlers/errors.py:43
 msgid "something went wrong"
 msgstr "⚠️ Щось пішло не так. Спробуйте ще раз."
 
-#: bot/handlers/export_users.py:29
-#, python-brace-format
-msgid "user counter: <b>{count}</b>"
-msgstr ""
+#: bot/handlers/export_users.py:34
+msgid "export queued"
+msgstr "експорт поставлено в чергу"
 
 #: bot/handlers/info.py:11
 msgid "about"
@@ -70,5 +82,8 @@ msgstr ""
 #~ "<i>Это сообщение появляет только один раз</i>\n"
 #~ "\n"
 #~ "Чтобы начать пользоваться ботом можете начать с /menu"
+#~ msgstr ""
+
+#~ msgid "user counter: <b>{count}</b>"
 #~ msgstr ""
 

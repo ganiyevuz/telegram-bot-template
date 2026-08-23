@@ -52,3 +52,7 @@ class CacheKeys:
     @classmethod
     def throttle(cls, scope: str, ident: int | str) -> str:
         return cls._key("throttle", scope, ident)
+
+    @classmethod
+    def broadcast(cls, broadcast_id: str) -> str:
+        return cls._key("broadcast", broadcast_id)
