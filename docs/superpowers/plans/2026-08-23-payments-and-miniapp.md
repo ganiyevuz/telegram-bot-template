@@ -1410,6 +1410,39 @@ git commit -m "feat(webapp): verify Telegram Mini App initData with constant-tim
 
 **No session tokens, deliberately.** `initData` is revalidated on every request rather than exchanged for a JWT: it is a cheap HMAC, Telegram refreshes it client-side, and it keeps the API replicas completely stateless — no shared session store, no token lifecycle, no revocation problem. That is the multi-replica-correct choice and it matches everything else in this architecture.
 
+- [ ] **Step 0: Wire dishka into FastAPI — it is not wired today**
+
+`bot/core/lifespan.py:53` calls `setup_dishka(container=container, router=dp, auto_inject=True)`.
+That is the **aiogram** integration. Nothing wires dishka into FastAPI: the existing routes
+(`health`, `metrics`, `webhook`) never resolve a service, so the gap has never mattered. Your
+routes are the first that need `UserService` and `PaymentService`.
+
+**The obvious wiring does not work.** `dishka.integrations.fastapi.setup_dishka` is two
+statements — `app.add_middleware(ContainerMiddleware)` and
+`app.state.dishka_container = container` — and the container only exists once the lifespan has
+started. Calling `setup_dishka` inside `_lifespan` fails, verified:
+
+```
+add_middleware INSIDE lifespan: RAISED RuntimeError: Cannot add middleware after an application has started
+```
+
+Starlette builds its middleware stack before the lifespan runs. Split the two halves:
+
+- `app.add_middleware(ContainerMiddleware)` in `create_app()`, at construction time.
+- `app.state.dishka_container = ctx.container` inside `_lifespan`, beside the existing
+  `app.state.ctx = ctx`.
+
+Then declare the webapp router as `APIRouter(route_class=DishkaRoute)` and use `FromDishka[...]`
+in route signatures, exactly as the aiogram handlers do. Verified working end to end with both
+APP- and REQUEST-scoped dependencies:
+
+```
+lifespan startup: lifespan.startup.complete
+WITH lifespan: 200 {"g":"hello","per":["hello","req"]}
+```
+
+Import `ContainerMiddleware`, `DishkaRoute` and `FromDishka` from `dishka.integrations.fastapi`.
+
 - [ ] **Step 1: Create `bot/webapp/dependencies.py`**
 
 The dependency reads `initData` from an `Authorization: tma <initData>` header — the scheme Telegram documents for this — and returns a verified `WebAppUser`. Because it is a FastAPI dependency, **every annotated type in this module must be a module-level import**: FastAPI resolves signatures at runtime. Add the per-file `# ruff: noqa: TC001, TC002`.
@@ -1434,11 +1467,39 @@ Mount `bot/webapp/static/` at `/webapp` with FastAPI's `StaticFiles`, `html=True
 
 - [ ] **Step 4: Verify authentication end to end**
 
-Write `webappcheck.py`, run it with `uv run --with httpx python webappcheck.py`, paste output, delete it. (`httpx` is NOT a project dependency — do not `uv add` it for a throwaway check; `--with` installs it for that one invocation. Drive the app with `httpx.ASGITransport(app=app)` so no port is bound.) It must show:
+Write `webappcheck.py`, run it with `uv run --with httpx python webappcheck.py`, paste output, delete it. (`httpx` is NOT a project dependency — do not `uv add` it for a throwaway check; `--with` installs it for that one invocation.)
+
+**`httpx.ASGITransport` does NOT run the lifespan.** It never sends the ASGI lifespan messages,
+so `_lifespan` never executes, `app.state.ctx` and `app.state.dishka_container` are never set,
+and every route fails with `AttributeError: 'State' object has no attribute 'dishka_container'`.
+Verified. This is the dangerous kind of harness bug — a confident 500 that reads as "my route is
+broken" when the route is fine, and it will push you into "fixing" working code.
+
+Drive the lifespan explicitly. Either `with TestClient(app) as client:` (the context manager form
+runs startup and shutdown), or drive it yourself before issuing requests:
+
+```python
+recv, send = asyncio.Queue(), asyncio.Queue()
+await recv.put({"type": "lifespan.startup"})
+task = asyncio.create_task(app({"type": "lifespan", "asgi": {"version": "3.0"}}, recv.get, send.put))
+assert (await send.get())["type"] == "lifespan.startup.complete"
+# ... issue requests through httpx.ASGITransport(app=app) ...
+await recv.put({"type": "lifespan.shutdown"})
+await task
+```
+
+The lifespan builds the whole container, so you need a real Postgres and Redis — use PRIVATE
+containers (`t9-pg` / `t9-rd` on unused ports), never the shared `tbt-devstack-*` pair. Set
+`USE_WEBHOOK=False` so startup does not try to reach Telegram. It must show:
 - a request with **no** `Authorization` header → **401**
 - a request with a **forged** `initData` (valid shape, wrong signature) → **401**
 - a request with a **correctly signed** `initData` → **200**, and the body naming the signing user
 - `/webapp` → **200** and HTML
+
+A guard your assertions need: 401 and 500 both mean "no data came back", so a route that 500s on
+everything would satisfy a check that only asserts unauthenticated callers get nothing. The
+binding assertion is that a correctly signed request returns **200 with the signing user's id in
+the body** — that is the only one proving the whole chain works rather than failing closed.
 
 Sign the good vector with the same helper from Task 8's check. The forged/valid pair is the assertion that matters: identical shape, different signature, opposite outcome.
 
