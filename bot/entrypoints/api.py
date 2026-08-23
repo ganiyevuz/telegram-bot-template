@@ -41,6 +41,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.settings = settings
     async with app_lifespan(settings) as ctx:
         app.state.ctx = ctx
+        # `setup_dishka(..., auto_inject=True)` (bot/core/lifespan.py) defers all
+        # `FromDishka[...]` wiring to a `router.startup` hook — see
+        # dishka/integrations/aiogram.py's `setup_dishka`/`inject_router`.
+        # `Dispatcher.start_polling()` (bot/entrypoints/polling.py) triggers that
+        # hook internally via its own `emit_startup()` call; `feed_update()` alone —
+        # what the webhook route below calls on every request — never does. Without
+        # this, every handler that injects a dishka dependency (e.g. support.py's
+        # support_handler, callbacks.py's support_callback) raises `TypeError: ...
+        # missing ... argument: 'settings'` on its first call — silently, since
+        # bot/handlers/errors.py's error handler swallows it and the webhook still
+        # returns 200.
+        await ctx.dp.emit_startup(bot=ctx.bot)
         await set_default_commands(ctx.bot)
         if settings.webhook.enabled:
             await ctx.bot.set_webhook(
@@ -53,6 +65,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             logger.info(f"webhook registered | {settings.webhook.url}")
         yield
+        # Symmetric with start_polling(), which calls `emit_shutdown()` in its
+        # `finally` block. `Dispatcher.__init__` always registers `self.fsm.close`
+        # on `dp.shutdown`, so without this the FSM storage's shutdown hook never
+        # runs under webhook mode. Must happen before this `async with` block exits
+        # below — that is what triggers `app_lifespan`'s own `container.close()`
+        # (bot/core/lifespan.py), which tears down the same Redis client
+        # `RedisStorage.close()` needs to still be alive.
+        await ctx.dp.emit_shutdown(bot=ctx.bot)
 
 
 def create_app() -> FastAPI:
