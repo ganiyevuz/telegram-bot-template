@@ -1518,7 +1518,7 @@ git commit -m "feat(webapp): authenticated Mini App API with initData verificati
 
 **Files:**
 - Create: `bot/webapp/static/index.html`
-- Modify: `bot/keyboards/inline/menu.py`, `bot/handlers/start.py`, `bot/core/config.py`, `.env.example`, `bot/locales/*`
+- Modify: `bot/keyboards/inline/menu.py`, `bot/handlers/start.py`, `bot/handlers/menu.py`, `bot/handlers/callbacks.py`, `bot/core/config.py`, `.env.example`, `bot/locales/*`, `README.md`
 
 **Interfaces:**
 - Consumes: `GET /api/webapp/me`, `POST /api/webapp/invoice` (Task 9).
@@ -1526,7 +1526,15 @@ git commit -m "feat(webapp): authenticated Mini App API with initData verificati
 
 **Pre-verified:** `WebAppInfo(url=...)`; `InlineKeyboardButton.web_app`; `Message.web_app_data`; `Bot.answer_web_app_query` all exist in aiogram 3.30.
 
-**Scope boundary:** one dependency-free page, no build step, no npm. It exists to prove the loop works end to end and to be replaced. The README should say so.
+**Scope boundary:** one dependency-free page, no build step, no npm. It exists to prove the loop works end to end and to be replaced.
+
+`README.md` is in scope (it is in the Modify list above). Add a short Mini App subsection — the
+file's headings are emoji-prefixed `##`, match that style — stating plainly that the bundled page
+is a dependency-free demo meant to be replaced; that Telegram will not load a Mini App over plain
+HTTP and `localhost` will not work on mobile, so a tunnel is needed locally; and that the launch
+button is omitted when `WEBAPP_URL` is unset. Add `WEBAPP_URL` to the existing
+`## 🌍 Environment variables` section, matching whatever format that section already uses rather
+than inventing a new one.
 
 - [ ] **Step 1: Add the Mini App URL setting**
 
@@ -1569,7 +1577,19 @@ Handle `t.me/<bot>?startapp=<payload>`: it arrives as `/start <payload>`, which 
 
 - [ ] **Step 4: Verify the page and the button**
 
-Fetch `/webapp` and assert the HTML contains the script tag, the viewport meta, `tg.ready(`, `--tg-theme-`, `MainButton`, and `tg.initData` but **not** `initDataUnsafe`. Then build `main_keyboard()` with and without `WEBAPP_URL` set and confirm the `web_app` button appears only when configured.
+Fetch `/webapp` and assert the HTML contains the script tag, the viewport meta, `tg.ready(`,
+`--tg-theme-`, `MainButton`, and `tg.initData` but **not** `initDataUnsafe`.
+
+Careful with that last pair: a naive substring test for `tg.initData` **also matches inside
+`tg.initDataUnsafe`**, so a page sending the unsigned copy would pass the check that exists
+precisely to catch it. Assert the negative explicitly.
+
+Then build `main_keyboard()` with and without `WEBAPP_URL` set. Assert the `web_app` button
+appears in exactly one of them **and that the other keyboard still contains its four normal
+buttons**. This is the contrast that matters: a `web_app` button with an empty URL is rejected by
+Telegram and kills the *entire* keyboard, not just that button (the same class as the
+`contacts_keyboard` defect in the phase 1-6 log), so a bug that drops everything when the URL is
+missing would sail past a check that only asserts "no web_app button present".
 
 - [ ] **Step 5: Lint and commit**
 
