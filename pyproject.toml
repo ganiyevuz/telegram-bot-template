@@ -113,3 +113,9 @@ show_absolute_path = true
 [[tool.mypy.overrides]]
 module = "asyncpg.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# wtforms ships no type information and no stubs are vendored; SQLAdmin's form hooks
+# are typed against it, so the panel's views cannot avoid importing it.
+module = "wtforms.*"
+ignore_missing_imports = true
