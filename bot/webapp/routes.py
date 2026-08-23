@@ -10,6 +10,7 @@ from bot.core.config import DEFAULT_LOCALE
 from bot.services.payments import PaymentService
 from bot.services.users import UserService
 from bot.webapp.dependencies import CurrentWebAppUser
+from bot.webapp.initdata import WebAppUser
 
 router = APIRouter(prefix="/api/webapp", tags=["webapp"], route_class=DishkaRoute)
 
@@ -25,13 +26,29 @@ class InvoiceResponse(BaseModel):
     invoice_link: str
 
 
-async def _locale_of(users: UserService, user_id: int) -> str:
-    """The caller's stored locale, or the default when they have no row yet."""
-    return await users.language_of(user_id) or DEFAULT_LOCALE
+async def _locale_of(users: UserService, i18n: I18n, user: WebAppUser) -> str:
+    """The locale to answer this caller in.
+
+    Stored value first — `/settings` is an explicit choice and must win. Then the
+    `language_code` from the *verified* `initData`, which is the only signal we have for
+    a caller who has never messaged the bot: a `t.me/<bot>?startapp=...` deep link opens
+    the Mini App without creating a row, so falling straight through to English would
+    hand a Russian speaker an English page on the one interaction most likely to decide
+    whether they stay. It is the client's own Telegram language, so it can be anything
+    (`de`, `pt-br`, ...); accepted only on exact membership of what the bot actually
+    ships, read off `I18n` so adding a locale later does not silently skip this path.
+    """
+    stored = await users.language_of(user.id)
+    if stored:
+        return stored
+    claimed = user.language_code
+    if claimed and claimed in i18n.available_locales:
+        return claimed
+    return DEFAULT_LOCALE
 
 
 @router.get("/me")
-async def me(user: CurrentWebAppUser, users: FromDishka[UserService]) -> MeResponse:
+async def me(user: CurrentWebAppUser, users: FromDishka[UserService], i18n: FromDishka[I18n]) -> MeResponse:
     """The caller's own profile — never anybody else's.
 
     The stored first name wins over the one inside `initData` because `/settings` can
@@ -41,7 +58,7 @@ async def me(user: CurrentWebAppUser, users: FromDishka[UserService]) -> MeRespo
     return MeResponse(
         id=user.id,
         first_name=await users.first_name_of(user.id) or user.first_name,
-        language_code=await _locale_of(users, user.id),
+        language_code=await _locale_of(users, i18n, user),
         # Our own paid premium, from the database — deliberately not `user.is_premium`,
         # which is the caller's *Telegram* Premium status and says nothing about
         # whether they have paid us.
@@ -58,7 +75,7 @@ async def invoice(
     i18n: FromDishka[I18n],
 ) -> InvoiceResponse:
     """A subscription invoice link for the caller, to open with `tg.openInvoice(...)`."""
-    locale = await _locale_of(users, user.id)
+    locale = await _locale_of(users, i18n, user)
     # aiogram's `gettext` reads the current I18n and locale from ContextVars that only
     # its own middleware sets, so the `_()` calls inside `subscription_link` raise
     # `LookupError: I18n context is not set` when the caller is a FastAPI route instead
