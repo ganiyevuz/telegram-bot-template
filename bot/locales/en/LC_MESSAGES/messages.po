@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 05:49+0500\n"
+"POT-Creation-Date: 2026-08-23 10:28+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -31,6 +31,22 @@ msgstr "could not queue, try again later"
 msgid "broadcast queued: <code>{id}</code>"
 msgstr "broadcast queued: <code>{id}</code>"
 
+#: bot/handlers/callbacks.py:32 bot/handlers/info.py:11
+msgid "about"
+msgstr "ℹ️ <b>About</b>"
+
+#: bot/handlers/callbacks.py:37 bot/handlers/support.py:20
+msgid "support text"
+msgstr "🤝 Support"
+
+#: bot/handlers/callbacks.py:42 bot/handlers/menu.py:13
+msgid "title main keyboard"
+msgstr "📒 <b>Menu</b>."
+
+#: bot/handlers/callbacks.py:49
+msgid "not available yet"
+msgstr "Not available yet."
+
 #: bot/handlers/errors.py:41 bot/handlers/errors.py:43
 msgid "something went wrong"
 msgstr "⚠️ Something went wrong. Please try again."
@@ -39,14 +55,6 @@ msgstr "⚠️ Something went wrong. Please try again."
 msgid "export queued"
 msgstr "export queued"
 
-#: bot/handlers/info.py:11
-msgid "about"
-msgstr "ℹ️ <b>About</b>"
-
-#: bot/handlers/menu.py:13
-msgid "title main keyboard"
-msgstr "📒 <b>Menu</b>."
-
 #: bot/handlers/start.py:14
 msgid "first message"
 msgstr ""
@@ -54,28 +62,24 @@ msgstr ""
 "\n"
 "To start using the bot you can start with /menu"
 
-#: bot/handlers/support.py:20
-msgid "support text"
-msgstr "🤝 Support"
-
-#: bot/keyboards/inline/contacts.py:11 bot/keyboards/inline/contacts.py:22
-#: bot/keyboards/inline/menu.py:12
+#: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
+#: bot/keyboards/inline/menu.py:14
 msgid "support button"
 msgstr "Support"
 
-#: bot/keyboards/inline/contacts.py:23
+#: bot/keyboards/inline/contacts.py:25
 msgid "back button"
 msgstr "🔙 Back"
 
-#: bot/keyboards/inline/menu.py:9
+#: bot/keyboards/inline/menu.py:11
 msgid "wallet button"
 msgstr "👛 Wallet"
 
-#: bot/keyboards/inline/menu.py:10
+#: bot/keyboards/inline/menu.py:12
 msgid "premium button"
 msgstr "🆙 Get PREMIUM"
 
-#: bot/keyboards/inline/menu.py:11
+#: bot/keyboards/inline/menu.py:13
 msgid "info button"
 msgstr "Info"
 

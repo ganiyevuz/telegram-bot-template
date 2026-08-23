@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 05:49+0500\n"
+"POT-Creation-Date: 2026-08-23 10:28+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: uk\n"
@@ -32,6 +32,22 @@ msgstr "не вдалося поставити в чергу, спробуйте
 msgid "broadcast queued: <code>{id}</code>"
 msgstr "розсилку поставлено в чергу: <code>{id}</code>"
 
+#: bot/handlers/callbacks.py:32 bot/handlers/info.py:11
+msgid "about"
+msgstr ""
+
+#: bot/handlers/callbacks.py:37 bot/handlers/support.py:20
+msgid "support text"
+msgstr ""
+
+#: bot/handlers/callbacks.py:42 bot/handlers/menu.py:13
+msgid "title main keyboard"
+msgstr ""
+
+#: bot/handlers/callbacks.py:49
+msgid "not available yet"
+msgstr "поки що недоступно"
+
 #: bot/handlers/errors.py:41 bot/handlers/errors.py:43
 msgid "something went wrong"
 msgstr "⚠️ Щось пішло не так. Спробуйте ще раз."
@@ -40,40 +56,28 @@ msgstr "⚠️ Щось пішло не так. Спробуйте ще раз."
 msgid "export queued"
 msgstr "експорт поставлено в чергу"
 
-#: bot/handlers/info.py:11
-msgid "about"
-msgstr ""
-
-#: bot/handlers/menu.py:13
-msgid "title main keyboard"
-msgstr ""
-
 #: bot/handlers/start.py:14
 msgid "first message"
 msgstr ""
 
-#: bot/handlers/support.py:20
-msgid "support text"
-msgstr ""
-
-#: bot/keyboards/inline/contacts.py:11 bot/keyboards/inline/contacts.py:22
-#: bot/keyboards/inline/menu.py:12
+#: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
+#: bot/keyboards/inline/menu.py:14
 msgid "support button"
 msgstr ""
 
-#: bot/keyboards/inline/contacts.py:23
+#: bot/keyboards/inline/contacts.py:25
 msgid "back button"
 msgstr ""
 
-#: bot/keyboards/inline/menu.py:9
+#: bot/keyboards/inline/menu.py:11
 msgid "wallet button"
 msgstr ""
 
-#: bot/keyboards/inline/menu.py:10
+#: bot/keyboards/inline/menu.py:12
 msgid "premium button"
 msgstr ""
 
-#: bot/keyboards/inline/menu.py:11
+#: bot/keyboards/inline/menu.py:13
 msgid "info button"
 msgstr ""
 

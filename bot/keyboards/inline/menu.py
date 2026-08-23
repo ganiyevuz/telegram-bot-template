@@ -2,14 +2,16 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.i18n import gettext as _
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.keyboards.callback_data import MenuCB
+
 
 def main_keyboard() -> InlineKeyboardMarkup:
     """Use in main menu."""
     buttons = [
-        [InlineKeyboardButton(text=_("wallet button"), callback_data="wallet")],
-        [InlineKeyboardButton(text=_("premium button"), callback_data="premium")],
-        [InlineKeyboardButton(text=_("info button"), callback_data="info")],
-        [InlineKeyboardButton(text=_("support button"), callback_data="support")],
+        [InlineKeyboardButton(text=_("wallet button"), callback_data=MenuCB(action="wallet").pack())],
+        [InlineKeyboardButton(text=_("premium button"), callback_data=MenuCB(action="premium").pack())],
+        [InlineKeyboardButton(text=_("info button"), callback_data=MenuCB(action="info").pack())],
+        [InlineKeyboardButton(text=_("support button"), callback_data=MenuCB(action="support").pack())],
     ]
 
     keyboard = InlineKeyboardBuilder(markup=buttons)
