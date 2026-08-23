@@ -45,9 +45,21 @@ class OutboundRateLimiter:
             return await make_request(bot, method)
         except TelegramRetryAfter as exc:
             OUTBOUND_RETRY_AFTER.inc()
-            delay = min(exc.retry_after, MAX_RETRY_AFTER)
-            logger.warning(f"telegram 429 | sleeping {delay}s | method: {type(method).__name__}")
-            await asyncio.sleep(delay)
+            if exc.retry_after > MAX_RETRY_AFTER:
+                # MAX_RETRY_AFTER is a give-up threshold, not a "wait less" cap. Sleeping the
+                # capped duration and retrying anyway would mean retrying into a limit we know
+                # is still active — Telegram already told us the exact second it clears, and
+                # that second is later than our cap. Retrying early just buys a second,
+                # guaranteed 429 for nothing. Better to give up the one retry this method
+                # allows and let the caller (broadcast task, handler, ...) treat this send as
+                # failed rather than block indefinitely on however long Telegram wants.
+                logger.warning(
+                    f"telegram 429 | retry_after {exc.retry_after}s exceeds cap {MAX_RETRY_AFTER}s, "
+                    f"giving up | method: {type(method).__name__}",
+                )
+                raise
+            logger.warning(f"telegram 429 | sleeping {exc.retry_after}s | method: {type(method).__name__}")
+            await asyncio.sleep(exc.retry_after)
             return await make_request(bot, method)
 
     @staticmethod
