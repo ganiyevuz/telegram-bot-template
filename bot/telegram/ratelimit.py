@@ -66,4 +66,9 @@ class OutboundRateLimiter:
     async def _wait(bucket: TokenBucket, key: str, scope: str) -> None:
         while (delay := await bucket.acquire(key)) > 0:
             OUTBOUND_WAITS.labels(scope=scope).inc()
-            await asyncio.sleep(delay)
+            # `acquire` reserves nothing — a caller that loses this round just gets told
+            # the current gap, which under contention (or from float residue in the Lua's
+            # token math) can come back as a near-zero positive delay. Sleeping that
+            # verbatim would turn into an almost-immediate Redis round trip instead of
+            # actually throttling, so floor it to bound the worst-case call rate.
+            await asyncio.sleep(max(delay, 0.01))
