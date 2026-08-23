@@ -85,6 +85,12 @@ class PaymentSettings(BaseSettings):
     subscription_period_days: int = 30
 
 
+class WebAppSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="WEBAPP_")
+
+    init_data_max_age_seconds: int = Field(default=86400, validation_alias="WEBAPP_INIT_DATA_MAX_AGE")
+
+
 class AnalyticsSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV)
 
@@ -111,6 +117,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     payments: PaymentSettings = Field(default_factory=PaymentSettings)
+    webapp: WebAppSettings = Field(default_factory=WebAppSettings)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
