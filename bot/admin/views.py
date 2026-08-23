@@ -324,3 +324,15 @@ class PaymentAdmin(ModelView, model=PaymentModel):
             f"admin refund action | refunded: {refunded} | already: {already} | "
             f"skipped: {skipped} | failed: {len(failed)}",
         )
+
+
+# SQLAdmin's `ModelViewMeta` assigns `identity = slugify(model.__name__)` AFTER the class
+# body runs, so `UserModel` becomes the URL segment `user-model` and setting `identity`
+# inside the class is silently overwritten. These URLs are a public surface of a template
+# others copy, so they are corrected here — the only place the assignment survives.
+# `identity` is also what `url_for("admin:list", identity=...)` is keyed on (see
+# `PaymentAdmin._back_to_list`), so changing it moves the routes and the links together.
+UserAdmin.identity = "user"
+PaymentAdmin.identity = "payment"
+AdminAdmin.identity = "admin"
+RoleAdmin.identity = "role"

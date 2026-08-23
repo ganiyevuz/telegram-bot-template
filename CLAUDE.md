@@ -64,7 +64,7 @@ Consequences:
 
 ### Adding a handler
 
-Handler modules each expose `router = Router(name=...)`. Register them in `get_handlers_router()` (`bot/handlers/__init__.py`), which imports the handler modules at file top level. Same for `register_middlewares()` in `bot/middlewares/__init__.py`. Note that `bot/core/loader.py` builds `bot`, `dp`, `redis_client`, `storage`, `i18n`, and the aiohttp `app` at import time, so importing anything under `bot/` instantiates those; the routers are module-level singletons, so `get_handlers_router()` may only be called once per process.
+Handler modules each expose `router = Router(name=...)`. Register them in `get_handlers_router()` (`bot/handlers/__init__.py`), which imports the handler modules at file top level. Same for `register_middlewares()` in `bot/middlewares/__init__.py`. There are no import-time globals: `bot`, `dp`, `redis_client`, `storage` and `i18n` are all built by the dishka container in `bot/core/di.py` and handed out through `bot/core/lifespan.py`. The routers are still module-level singletons, so `get_handlers_router()` may only be called once per process.
 
 ### Services + Redis cache
 
@@ -82,14 +82,14 @@ Text uses `_()` from `aiogram.utils.i18n`, resolved per-update by `ACLMiddleware
 
 `bot/core/config.py` composes `Settings` from nested pydantic-settings classes (`BotSettings`, `DatabaseSettings`, `WebhookSettings`, `AdminSettings`, ...) reading `.env`, resolved to an absolute path (`f"{DIR}/.env"`) so it is found regardless of the working directory. `BOT_TOKEN` has no default — nothing under `bot/` imports without it. The admin panel reads this same `Settings` (`settings.admin`); there is no second configuration module.
 
-`USE_WEBHOOK` switches between `dp.start_polling` and an aiohttp server; the Prometheus middleware and `/metrics` endpoint are only mounted in webhook mode (`bot/__main__.py`).
+There are two entrypoints, not one switch. `bot/entrypoints/api.py` is the FastAPI app — webhook, `/health/live`, `/health/ready`, `/metrics`, the Mini App and the admin panel — and is what the Docker image runs (`uvicorn bot.entrypoints.api:app`). `bot/__main__.py` is long polling for local development only and serves none of those. `USE_WEBHOOK` decides whether the API registers a webhook with Telegram on startup; `/metrics` is mounted in **every** mode.
 
 ### Database, migrations, pgbouncer
 
 - Models inherit `Base` (`bot/database/models/base.py`) with annotated column types (`big_int_pk`, `created_at`) and a `repr_cols` convention. A new model **must** be re-exported from `bot/database/models/__init__.py` — Alembic autogenerate reads `Base.metadata` through that import and would otherwise emit a drop.
 - `migrations/` is excluded from ruff.
 - Alembic manages **every** table, the panel's `admin` / `role` / `roles_admins` included (`migrations/versions/2026-08-23_admin_tables.py`). Those three used to be created outside Alembic by `init_db()` in the deleted `admin/app.py`; that migration refuses to run on a database still carrying them and prints the `DROP TABLE` to run first, because their Flask-Security `pbkdf2_sha512` digests cannot be verified by the new scrypt hashing.
-- The engine uses `pool_size=0` and a custom `CConnection` that randomizes asyncpg's prepared-statement names (`bot/database/database.py`). This exists because traffic goes through **pgbouncer** — do not "clean up" either.
+- The engine (`bot/core/di.py`) passes `connect_args={"statement_cache_size": 0, "prepared_statement_cache_size": 0}`. This exists because traffic goes through **pgbouncer in transaction pooling mode**, where server-side prepared statements cannot be reused across transactions — do not "clean up" either option. The old `CConnection` prepared-statement-name hack and `bot/database/database.py` are gone; they only existed to survive session pooling.
 
 ## Conventions
 
