@@ -37,6 +37,9 @@ bot = [
     "uvicorn[standard]>=0.52.4,<1.0.0",
     "taskiq>=0.12.5,<1.0.0",
     "taskiq-redis>=1.2.3,<2.0.0",
+    "sqladmin>=0.31.0,<1.0.0",
+    "itsdangerous>=2.2.0,<3.0.0",
+    "python-multipart>=0.0.32,<1.0.0",
 ]
 admin = [
     "gunicorn>=26.0.0,<27.0.0",

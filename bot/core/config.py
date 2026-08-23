@@ -10,6 +10,9 @@ BOT_DIR = Path(__file__).absolute().parent.parent
 LOCALES_DIR = f"{BOT_DIR}/locales"
 I18N_DOMAIN = "messages"
 DEFAULT_LOCALE = "en"
+# The admin password this template ships with, in `.env.example` and as the fallback
+# below. `seed_default_admin` warns on every deployment still running with it.
+SHIPPED_ADMIN_PASSWORD = "admin"  # noqa: S105 - a published default, not a secret
 
 _ENV = SettingsConfigDict(env_file=f"{DIR}/.env", env_file_encoding="utf-8", extra="ignore")
 
@@ -102,6 +105,26 @@ class WebAppSettings(BaseSettings):
     init_data_max_age_seconds: int = Field(default=3600, validation_alias="WEBAPP_INIT_DATA_MAX_AGE")
 
 
+class AdminSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="ADMIN_")
+
+    enabled: bool = True
+    # Signs the admin session cookie. Deliberately empty by default: a shipped
+    # signing key lets anyone who has read the template forge an admin session on
+    # every deployment that did not change it — which is exactly what the Flask
+    # panel did (`SECRET_KEY: str = os.getenv("SECRET_KEY") or "x%#3&%giwv8f0+..."`).
+    # An empty value is not usable: `AdminAuth` refuses to construct without one.
+    secret_key: SecretStr = SecretStr("")
+    # Kept under their historical env names rather than the ADMIN_ prefix. Renaming
+    # them to ADMIN_DEFAULT_* would silently ignore what an existing deployment has
+    # in its .env and seed the shipped default password instead of the operator's.
+    default_email: str = Field(default="admin@example.com", validation_alias="DEFAULT_ADMIN_EMAIL")
+    default_password: SecretStr = Field(
+        default=SecretStr(SHIPPED_ADMIN_PASSWORD),
+        validation_alias="DEFAULT_ADMIN_PASSWORD",
+    )
+
+
 class AnalyticsSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV)
 
@@ -129,6 +152,7 @@ class Settings(BaseSettings):
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     payments: PaymentSettings = Field(default_factory=PaymentSettings)
     webapp: WebAppSettings = Field(default_factory=WebAppSettings)
+    admin: AdminSettings = Field(default_factory=AdminSettings)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 

@@ -1244,6 +1244,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-multipart"
+version = "0.0.32"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
+]
+
+[[package]]
 name = "pytz"
 version = "2025.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1328,6 +1337,22 @@ wheels = [
 [package.optional-dependencies]
 loguru = [
     { name = "loguru" },
+]
+
+[[package]]
+name = "sqladmin"
+version = "0.31.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "python-multipart" },
+    { name = "sqlalchemy" },
+    { name = "starlette" },
+    { name = "wtforms" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/68/8d333eefb54cfb531cf485026465abda62ecf0da86866dd0cef5d0c87a79/sqladmin-0.31.0.tar.gz", hash = "sha256:1b125cbdaf1aac75b13504a0bc7e6b4a1b2d6ffdc5e34272ac2a0c8b729c3e1b", size = 1012720, upload-time = "2026-08-06T08:50:36.976Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/1a/882f69b61c218e10ce454a3122747a959621bc60321ae96b8d59adedb3e7/sqladmin-0.31.0-py3-none-any.whl", hash = "sha256:28e980d048d88f372e552fb7b2770e510aab78872e8bf1b6adf19dcaea0716b7", size = 1045133, upload-time = "2026-08-06T08:50:35.79Z" },
 ]
 
 [[package]]
@@ -1451,11 +1476,14 @@ bot = [
     { name = "babel" },
     { name = "dishka" },
     { name = "fastapi" },
+    { name = "itsdangerous" },
     { name = "loguru" },
     { name = "orjson" },
     { name = "prometheus-client" },
+    { name = "python-multipart" },
     { name = "redis" },
     { name = "sentry-sdk", extra = ["loguru"] },
+    { name = "sqladmin" },
     { name = "taskiq" },
     { name = "taskiq-redis" },
     { name = "uvicorn", extra = ["standard"] },
@@ -1494,11 +1522,14 @@ bot = [
     { name = "babel", specifier = ">=2.17.0,<3.0.0" },
     { name = "dishka", specifier = ">=1.10.1,<2.0.0" },
     { name = "fastapi", specifier = ">=0.141.1,<1.0.0" },
+    { name = "itsdangerous", specifier = ">=2.2.0,<3.0.0" },
     { name = "loguru", specifier = ">=0.7.3,<1.0.0" },
     { name = "orjson", specifier = ">=3.12.0,<4.0.0" },
     { name = "prometheus-client", specifier = ">=0.26.0,<1.0.0" },
+    { name = "python-multipart", specifier = ">=0.0.32,<1.0.0" },
     { name = "redis", specifier = ">=8.1.0,<9.0.0" },
     { name = "sentry-sdk", extras = ["loguru"], specifier = ">=2.68.0,<3.0.0" },
+    { name = "sqladmin", specifier = ">=0.31.0,<1.0.0" },
     { name = "taskiq", specifier = ">=0.12.5,<1.0.0" },
     { name = "taskiq-redis", specifier = ">=1.2.3,<2.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4,<1.0.0" },
