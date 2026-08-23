@@ -9,7 +9,7 @@ WORKDIR /usr/src/app
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --group bot --no-group admin --no-group dev \
+    uv sync --frozen --no-install-project --group bot --no-group dev \
     && pybabel compile -d ./bot/locales \
     && adduser -D appuser \
     && chown -R appuser:appuser .

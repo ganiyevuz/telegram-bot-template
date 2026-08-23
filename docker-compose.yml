@@ -9,7 +9,9 @@ services:
     env_file:
       - .env
     # Host port is configurable; the container port is always 8080 so Prometheus and
-    # the healthchecks below can address it without reading .env.
+    # the healthchecks below can address it without reading .env. This one port now
+    # serves the admin panel too, at ${WEBHOOK_PORT}/admin — there is no separate admin
+    # service and no ${ADMIN_PORT} any more.
     ports:
       - ${WEBHOOK_PORT}:8080
     networks:
@@ -18,28 +20,6 @@ services:
     depends_on:
       - pgbouncer
       - redis
-
-  admin:
-    build:
-      context: .
-      dockerfile: ./admin/Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-admin
-    restart: always
-    env_file:
-      - .env
-    environment:
-      # gunicorn binds ADMIN_HOST:ADMIN_PORT *inside* the container (admin/gunicorn_conf.py),
-      # so pin it here: the container port is fixed at 5000 and ${ADMIN_PORT} from .env is
-      # only the host binding, mirroring the api service.
-      - ADMIN_PORT=5000
-    ports:
-      - ${ADMIN_PORT}:5000
-    networks:
-      - app
-    depends_on:
-      - api
-    volumes:
-      - ./admin:/usr/src/app/admin
 
   postgres:
     image: postgres:14-alpine

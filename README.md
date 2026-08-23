@@ -16,12 +16,12 @@
 
 ## ✨ Features
 
--   [x] Admin Panel based on [`Flask-Admin-Dashboard`](https://github.com/jonalxh/Flask-Admin-Dashboard/) ([`Flask-Admin`](https://flask-admin.readthedocs.io/) + [`AdminLTE`](https://adminlte.io/) = ❤️ )
+-   [x] Admin Panel based on [`SQLAdmin`](https://aminalaee.dev/sqladmin/), mounted on the same FastAPI app at `/admin`
 -   [x] Product Analytics System: using [`Amplitude`](https://amplitude.com/) or [`Posthog`](https://posthog.com/) or [`Google Analytics`](https://analytics.google.com)
 -   [x] Performance Monitoring System: using [`Prometheus`](https://prometheus.io/) and [`Grafana`](https://grafana.com/)
 -   [x] Tracking System: using [`Sentry`](https://sentry.io/)
 -   [x] Seamless use of `Docker` and `Docker Compose`
--   [x] Export all users in `.csv` (or `.xlsx`, `.json`, `yaml` from admin panel)
+-   [x] Export all users in `.csv` (from the bot's `/export_users` command or the admin panel)
 -   [x] Configured CI pipeline from git hooks to github actions
 -   [x] [`SQLAlchemy V2`](https://pypi.org/project/SQLAlchemy/) is used to communicate with the database
 -   [x] Database Migrations with [`Alembic`](https://pypi.org/project/alembic/)
@@ -35,8 +35,9 @@
 
 The compose stack runs the **API** entrypoint (`bot.entrypoints.api`) — the `api` service is
 `uvicorn` serving `/webhook`, the health probes `/health/live` and `/health/ready`, Prometheus
-`/metrics`, and the Mini App at `/webapp` + `/api/webapp/*`. It is the deployment path, and the
-only one that is horizontally scalable.
+`/metrics`, the Mini App at `/webapp` + `/api/webapp/*`, and the admin panel at `/admin`. It is
+the deployment path, and the only one that is horizontally scalable. There is no second
+application: the panel is SQLAdmin bound to the same async engine the bot already runs on.
 
 -   configure environment variables in `.env` file
 
@@ -55,6 +56,7 @@ only one that is horizontally scalable.
 
     ```bash
     curl localhost:8080/health/ready   # 200 once Postgres and Redis are reachable
+    open  localhost:8080/admin         # the panel; log in with DEFAULT_ADMIN_EMAIL/PASSWORD
     ```
 
 ### 💻 Running on Local Machine
@@ -77,11 +79,15 @@ only one that is horizontally scalable.
     make run-polling   # == uv run python -m bot
     ```
 
--   start admin panel
+-   start the API — this is what serves the admin panel, at `/admin`
 
     ```bash
-    uv run gunicorn -c admin/gunicorn_conf.py
+    uv run uvicorn bot.entrypoints.api:app --port 8080
     ```
+
+    `ADMIN_SECRET_KEY` has no default and the process refuses to start without one while
+    `ADMIN_ENABLED=True`. Generate one with
+    `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
 -   make migrations
 
@@ -130,12 +136,10 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 | `WEBHOOK_PORT`           | **Host** port published for the `api` service; the container always serves on `8080`        |
 | `WEBAPP_URL`             | Public HTTPS URL of the Mini App page (must be HTTPS; omitting it hides the launch button)  |
 | `WEBAPP_INIT_DATA_MAX_AGE` | Seconds a captured `initData` stays usable against `/api/webapp/*` (default `3600`)      |
-| `ADMIN_HOST`             | Hostname or IP address for the admin panel                                                  |
-| `ADMIN_PORT`             | **Host** port published for the admin panel; the container always serves on `5000`          |
-| `DEFAULT_ADMIN_EMAIL`    | Default email for the admin user                                                            |
-| `DEFAULT_ADMIN_PASSWORD` | Default password for the admin user                                                         |
-| `SECURITY_PASSWORD_HASH` | Hashing algorithm for user passwords (e.g., `bcrypt`)                                       |
-| `SECURITY_PASSWORD_SALT` | Salt value for user password hashing                                                        |
+| `ADMIN_ENABLED`          | Mount the admin panel at `/admin` (`True`/`False`); `False` leaves no `/admin` route at all |
+| `ADMIN_SECRET_KEY`       | **Required** while `ADMIN_ENABLED=True` — signs the admin session cookie; no default        |
+| `DEFAULT_ADMIN_EMAIL`    | Email of the superuser seeded on the first start against an empty `admin` table             |
+| `DEFAULT_ADMIN_PASSWORD` | Password for that seeded superuser — change it, and the seeded account's password with it   |
 | `DB_HOST`                | Hostname or IP address of the PostgreSQL database                                           |
 | `DB_PORT`                | Port the app dials pgbouncer on — a **container** port; keep `5432` under Docker            |
 | `DB_USER`                | Username for authenticating with the PostgreSQL database                                    |
@@ -156,30 +160,10 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 
 ```bash
 .
-├── admin # Source code for admin panel
-│   ├── __init__.py
-│   ├── app.py # Main application module for the admin panel
-│   ├── config.py # Configuration module for the admin panel
-│   ├── Dockerfile # Dockerfile for admin panel
-│   ├── gunicorn_conf.py # Gunicorn configuration file for serving admin panel
-│   ├── static # Folder for static assets
-│   │   ├── css/
-│   │   ├── fonts/
-│   │   ├── img/
-│   │   ├── js/
-│   │   └── plugins/
-│   ├── templates # HTML templates for the admin panel
-│   │   ├── admin/
-│   │   ├── index.html
-│   │   ├── my_master.html
-│   │   └── security/
-│   └── views # Custom View modules for handling web requests
-│       ├── __init__.py
-│       └── users.py
-│
 ├── bot # Source code for Telegram Bot
 │   ├── __init__.py
 │   ├── __main__.py # Main entry point to launch the bot
+│   ├── admin/ # SQLAdmin panel — views, session auth, dashboard; mounted at /admin
 │   ├── analytics/ # Interaction with analytics services (e.g., Amplitude or Google Analytics)
 │   ├── cache/ # Logic for using Redis cache
 │   ├── core/ # Settings for application and other core components
@@ -225,7 +209,7 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 -   `sqlalchemy` — object-relational mapping (ORM) library that provides a set of high-level API for interacting with relational databases
 -   `asyncpg` — asynchronous PostgreSQL database client library
 -   `aiogram` — asynchronous framework for Telegram Bot API
--   `flask-admin` — simple and extensible administrative interface framework
+-   `sqladmin` — admin panel over the SQLAlchemy models, mounted on the FastAPI app
 -   `loguru` — third party library for logging in Python
 -   `uv` — development workflow
 -   `docker` — to automate deployment

@@ -7,7 +7,9 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from bot.admin import seed_default_admin, setup_admin
 from bot.api import health, metrics, webhook
 from bot.core.config import BOT_DIR, get_settings
 from bot.core.lifespan import lifespan as app_lifespan
@@ -45,6 +47,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             "would otherwise accept forged updates from anyone"
         )
         raise RuntimeError(msg)
+    if settings.admin.enabled and not settings.admin.secret_key.get_secret_value():
+        # Same shape, and the same reason, as the webhook guard above. The Flask panel
+        # this replaces shipped a hardcoded fallback signing key in `admin/config.py`,
+        # so every deployment that never set SECRET_KEY signed its admin session cookie
+        # with a value printed in the template's own source — anyone who had read the
+        # repository could forge a logged-in admin session on it. `AdminSettings.secret_key`
+        # therefore has no default, and an unset one has to stop the process rather than
+        # sign cookies with the empty string. Set ADMIN_ENABLED=False if you do not want
+        # the panel at all.
+        msg = (
+            "ADMIN_SECRET_KEY must be set when ADMIN_ENABLED=True — it signs the admin "
+            "session cookie, and an empty key means anyone can forge one"
+        )
+        raise RuntimeError(msg)
     app.state.settings = settings
     async with app_lifespan(settings) as ctx:
         app.state.ctx = ctx
@@ -54,6 +70,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # REQUEST-scoped child container, so it must be set before the first request,
         # and the container only exists from here on.
         app.state.dishka_container = ctx.container
+        if settings.admin.enabled:
+            # The other half of the admin wiring, for the same reason the container is
+            # attached here: `Admin(...)` needs the engine and the sessionmaker, which are
+            # APP-scoped dishka objects that do not exist until `app_lifespan` has built
+            # the container. Mounting is a route-list append, not `add_middleware`, so it
+            # is not blocked by the frozen middleware stack — see `setup_admin`'s
+            # docstring. This runs before the first request either way: Starlette does not
+            # start serving until the lifespan reaches its `yield`.
+            sessionmaker = await ctx.container.get(async_sessionmaker[AsyncSession])
+            setup_admin(app, await ctx.container.get(AsyncEngine), sessionmaker, settings)
+            # What `init_db()` did at import time in the Flask panel, moved to the one
+            # place that runs once per process with the container available. It is a no-op
+            # on any database whose `admin` table already has a row.
+            await seed_default_admin(sessionmaker, settings)
         # `setup_dishka(..., auto_inject=True)` (bot/core/lifespan.py) defers all
         # `FromDishka[...]` wiring to a `router.startup` hook — see
         # dishka/integrations/aiogram.py's `setup_dishka`/`inject_router`.
