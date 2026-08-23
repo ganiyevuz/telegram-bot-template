@@ -3,16 +3,25 @@
 from __future__ import annotations
 from typing import Any
 
-from sqladmin import ModelView
+from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
+from dishka import AsyncContainer, Scope
+from loguru import logger
+from sqladmin import Flash, ModelView, action
 from sqladmin.filters import BooleanFilter, OperationColumnFilter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
+from starlette.responses import RedirectResponse
+from starlette.status import HTTP_302_FOUND
 from wtforms.fields import PasswordField
 from wtforms.form import Form
 from wtforms.validators import InputRequired
 
 from bot.admin.auth import SUPERUSER_SESSION_KEY
 from bot.admin.security import hash_password
-from bot.database.models import AdminModel, RoleModel, UserModel
+from bot.database.models import AdminModel, PaymentModel, PaymentStatus, RoleModel, UserModel
+from bot.services.payments import PaymentService
 
 
 class SuperuserOnly:
@@ -166,3 +175,152 @@ class AdminAdmin(SuperuserOnly, ModelView, model=AdminModel):
             raise ValueError(msg)
         else:
             data.pop("password", None)
+
+
+# Shown in the confirmation modal before the action runs. The list page fires this from
+# a row checkbox, so without a confirmation a misclick moves real money — and it cannot
+# be walked back: Telegram rejects a second `refund_star_payment` for the same charge.
+REFUND_CONFIRMATION = "Refund the selected Stars payments? This calls Telegram and cannot be undone."
+
+
+def _selected_ids(request: Request) -> list[int]:
+    """The primary keys SQLAdmin puts in `?pks=` — the rows ticked on the list page.
+
+    Non-numeric entries are dropped rather than raising: the query string is whatever
+    was typed into the URL bar, and a `ValueError` here would replace the list with
+    SQLAdmin's error page instead of telling the operator nothing was selected.
+    """
+    raw = request.query_params.get("pks", "")
+    return [int(pk) for pk in raw.split(",") if pk.isdigit()]
+
+
+def _flash_outcome(
+    request: Request,
+    *,
+    refunded: list[int],
+    already: list[int],
+    skipped: list[int],
+    failed: list[str],
+) -> None:
+    """Report every bucket the action produced, including the ones it did nothing for.
+
+    A refund that was skipped looks exactly like one that succeeded if the only
+    feedback is a redirect back to the list, and the operator would reasonably click
+    again.
+    """
+    if refunded:
+        Flash.success(request, f"Refunded {len(refunded)} payment(s): {', '.join(f'#{pk}' for pk in refunded)}.")
+    if already:
+        Flash.warning(request, f"Already refunded, left untouched: {', '.join(f'#{pk}' for pk in already)}.")
+    if skipped:
+        Flash.error(request, f"No payment recorded for: {', '.join(f'#{pk}' for pk in skipped)}.")
+    if failed:
+        Flash.error(request, f"Telegram rejected the refund for: {'; '.join(failed)}.")
+
+
+class PaymentAdmin(ModelView, model=PaymentModel):
+    name = "Payment"
+    name_plural = "Payments"
+    icon = "fa-solid fa-star"
+
+    column_list = [
+        PaymentModel.id,
+        PaymentModel.user_id,
+        PaymentModel.amount,
+        PaymentModel.currency,
+        PaymentModel.status,
+        PaymentModel.is_recurring,
+        PaymentModel.subscription_expires_at,
+        PaymentModel.created_at,
+    ]
+    column_searchable_list = [PaymentModel.user_id, PaymentModel.telegram_payment_charge_id]
+    column_default_sort = ("created_at", True)
+
+    # A payment row is a record of something that happened. Editing or deleting one
+    # makes the local ledger disagree with Telegram's, which is the exact drift
+    # `payments:reconcile` exists to detect.
+    can_create = False
+    can_edit = False
+    can_delete = False
+    can_view_details = True
+    can_export = True
+
+    def _back_to_list(self, request: Request) -> RedirectResponse:
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=HTTP_302_FOUND)
+
+    @action(name="refund", label="Refund selected payments", confirmation_message=REFUND_CONFIRMATION)
+    async def refund_payments(self, request: Request) -> RedirectResponse:
+        """Refund the ticked charges through `PaymentService.refund`, then go back to the list.
+
+        Every part of the decision belongs to the service: whether the charge is one of
+        ours, whether it belongs to that user, and — the part worth naming — whether to
+        revoke premium at all, which is only correct when no other unrefunded paid
+        period is still running. A user can hold two concurrent subscriptions, so
+        clearing `is_premium` on any refund revokes a period they paid for and still
+        hold, permanently. That bug has been fixed once in the service already;
+        re-deriving it here would put it straight back.
+        """
+        ids = _selected_ids(request)
+        if not ids:
+            Flash.warning(request, "Select at least one payment to refund.")
+            return self._back_to_list(request)
+
+        # SQLAdmin actions run outside dishka's FastAPI integration, so `FromDishka` is
+        # unavailable and the container has to come off the request. `request.state`
+        # first is not a fallback ordering, it is the working one: SQLAdmin mounts its
+        # own Starlette sub-application, and Starlette's `__call__` sets
+        # `scope["app"] = self`, so inside an action `request.app` is that sub-app — NOT
+        # the FastAPI app `setup_dishka` attached the APP-scoped container to. What does
+        # survive the mount is the ASGI scope's `state`, where dishka's
+        # `ContainerMiddleware` leaves the REQUEST-scoped child it opened for this
+        # request. That one is used as it is: asking it for another REQUEST scope would
+        # ask dishka to enter a scope it is already in. `request.app.state` still covers
+        # a panel mounted without that middleware.
+        container: AsyncContainer | None = getattr(request.state, "dishka_container", None)
+        if container is not None:
+            await self._refund_selected(request, container, ids)
+        else:
+            async with request.app.state.dishka_container(scope=Scope.REQUEST) as owned:
+                await self._refund_selected(request, owned, ids)
+        return self._back_to_list(request)
+
+    async def _refund_selected(self, request: Request, container: AsyncContainer, ids: list[int]) -> None:
+        bot = await container.get(Bot)
+        payments = await container.get(PaymentService)
+        session = await container.get(AsyncSession)
+
+        query = select(PaymentModel).where(PaymentModel.id.in_(ids)).order_by(PaymentModel.id)
+        rows = list(await session.scalars(query))
+
+        refunded: list[int] = []
+        already: list[int] = []
+        refused: list[int] = []
+        failed: list[str] = []
+        for payment in rows:
+            if payment.status == PaymentStatus.REFUNDED:
+                # Telegram rejects a second `refund_star_payment` for the same charge, so
+                # a double-click has to stop here rather than turning into an opaque
+                # "Bad Request" the operator cannot interpret.
+                already.append(payment.id)
+                continue
+            try:
+                ok = await payments.refund(bot, payment.user_id, payment.telegram_payment_charge_id)
+            except TelegramAPIError as exc:
+                # One charge Telegram refuses must not abandon the rest of the selection
+                # half-done, and the operator needs the reason rather than a 500 page.
+                logger.warning(f"admin refund rejected | payment: {payment.id} | error: {exc}")
+                failed.append(f"#{payment.id} ({exc.message})")
+                continue
+            # False means the service does not recognise the charge as this user's, which
+            # a row loaded from this same table should never be — report it rather than
+            # counting it as refunded.
+            (refunded if ok else refused).append(payment.id)
+
+        # `refused` and the ids that matched no row are one bucket to the operator: this
+        # panel holds no payment it can refund under that number.
+        skipped = sorted(refused + list(set(ids) - {payment.id for payment in rows}))
+        _flash_outcome(request, refunded=refunded, already=already, skipped=skipped, failed=failed)
+        logger.info(
+            f"admin refund action | refunded: {refunded} | already: {already} | "
+            f"skipped: {skipped} | failed: {len(failed)}",
+        )
