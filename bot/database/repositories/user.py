@@ -40,7 +40,9 @@ class UserRepository:
             last_name=user.last_name,
             username=user.username,
             language_code=user.language_code,
-            is_premium=user.is_premium or False,
+            # `is_premium` is deliberately NOT seeded from `TgUser.is_premium` — that
+            # field is the caller's *Telegram* Premium subscription, not a purchase from
+            # us. See the column's comment in bot/database/models/user.py.
             referrer=referrer,
         )
         self._session.add(new_user)

@@ -93,7 +93,13 @@ async def _webapp_index() -> FileResponse:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Telegram Bot", lifespan=_lifespan, docs_url=None, redoc_url=None)
+    settings = get_settings()
+    # `openapi_url=None` alongside the two UI routes: leaving the schema served while
+    # disabling /docs and /redoc hands anyone the full route table — `/webhook`
+    # included — on an origin that Tasks 9 and 10 publish to every user and register
+    # with BotFather. Set it back to "/openapi.json" behind an authenticated proxy if
+    # you need the schema.
+    app = FastAPI(title="Telegram Bot", lifespan=_lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     # `dishka.integrations.fastapi.setup_dishka(container, app)` is exactly two
     # statements — this `add_middleware` call plus `app.state.dishka_container = ...` —
     # and it cannot be used as one piece here: the container does not exist until
@@ -105,7 +111,15 @@ def create_app() -> FastAPI:
     app.add_middleware(ContainerMiddleware)
     app.include_router(health.router)
     app.include_router(metrics.router)
-    app.include_router(webhook.router)
+    if settings.webhook.enabled:
+        # Mounted ONLY in webhook mode. In polling mode the route has no purpose —
+        # `bot.entrypoints.polling` is what feeds updates — while the process may still
+        # be running this app to serve the Mini App over the HTTPS origin Telegram
+        # requires. An endpoint that does not exist cannot be misconfigured; the
+        # `_lifespan` guard above and the route's own secret check only cover the
+        # `webhook.enabled` case, so without this the polling operator gets a live,
+        # unauthenticated update sink whenever WEBHOOK_SECRET is empty.
+        app.include_router(webhook.router)
     app.include_router(webapp_routes.router)
     # `html=True` makes the mount serve `index.html` for a bare directory request.
     # The explicit `/webapp` route in front of it is not redundant: Starlette compiles a

@@ -4,7 +4,6 @@ from aiogram import Bot
 from dishka import Scope
 from loguru import logger
 
-from bot.cache.service import CacheService
 from bot.database.repositories import PaymentRepository
 from bot.tasks import broker, get_container
 
@@ -51,10 +50,11 @@ async def expire_premium() -> int:
     container = get_container()
     async with container(scope=Scope.REQUEST) as request_container:
         payments = await request_container.get(PaymentRepository)
-        cache = await request_container.get(CacheService)
+        # No cache invalidation here any more: `UserService.is_premium()` reads straight
+        # through to Postgres (see its docstring for why), so there is no `is_premium`
+        # key left for this sweep to clear — and blowing away the sweep's users' other
+        # cached fields was only ever a side effect of doing so.
         expired_ids = await payments.expire_premium()
-        for user_id in expired_ids:
-            await cache.invalidate_user(user_id)
 
     if expired_ids:
         logger.info(f"premium expired | count: {len(expired_ids)}")

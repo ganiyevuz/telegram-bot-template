@@ -89,6 +89,11 @@ Point `WEBAPP_URL` at the page and register the same URL with [@BotFather](https
 With `WEBAPP_URL` unset the launch button is simply omitted from the main menu — Telegram rejects
 a `web_app` button with an empty URL and drops the whole keyboard with it.
 
+Running `bot.entrypoints.api` for the Mini App while keeping polling for updates is a supported
+combination: it serves `/webapp` and `/api/webapp/*` either way, and mounts `POST /webhook` **only**
+when `USE_WEBHOOK=True`. In polling mode that path is a 404 by design — the route has no purpose
+there, and one that does not exist cannot be left unauthenticated by an empty `WEBHOOK_SECRET`.
+
 ## 🌍 Environment variables
 
 to launch the bot you only need a token bot, database and redis settings, everything else can be left out
@@ -106,6 +111,7 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 | `WEBHOOK_HOST`           | Hostname or IP address for the main application                                             |
 | `WEBHOOK_PORT`           | Port number for the main application                                                        |
 | `WEBAPP_URL`             | Public HTTPS URL of the Mini App page (must be HTTPS; omitting it hides the launch button)  |
+| `WEBAPP_INIT_DATA_MAX_AGE` | Seconds a captured `initData` stays usable against `/api/webapp/*` (default `3600`)      |
 | `ADMIN_HOST`             | Hostname or IP address for the admin panel                                                  |
 | `ADMIN_PORT`             | Port number for the admin panel                                                             |
 | `DEFAULT_ADMIN_EMAIL`    | Default email for the admin user                                                            |

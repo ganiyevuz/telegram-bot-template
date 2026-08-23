@@ -46,8 +46,13 @@ async def webhook(
     # this is the same "timing oracle" the Mini App spec warns about for the
     # analogous initData check.
     secret = settings.webhook.secret.get_secret_value()
-    if secret and not hmac.compare_digest(x_telegram_bot_api_secret_token, secret):
-        logger.warning("webhook rejected | bad secret token")
+    # An empty configured secret is a REJECTION, not "skip the check". The previous
+    # `if secret and ...` form made an unset WEBHOOK_SECRET mean "authenticate nobody",
+    # so any request reaching a mounted route was dispatched as a genuine Telegram
+    # update. There is no configuration in which serving this route without a
+    # verifiable secret is correct, so it fails closed here as well as at startup.
+    if not secret or not hmac.compare_digest(x_telegram_bot_api_secret_token, secret):
+        logger.warning("webhook rejected | bad or missing secret token")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
     if settings.webhook.verify_source_ip:

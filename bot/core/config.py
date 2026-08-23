@@ -93,7 +93,13 @@ class WebAppSettings(BaseSettings):
     # omitted from the menu entirely: `WebAppInfo(url="")` is rejected by Telegram and
     # takes the *whole* keyboard down with it, not just that one button.
     url: str | None = Field(default=None, validation_alias="WEBAPP_URL")
-    init_data_max_age_seconds: int = Field(default=86400, validation_alias="WEBAPP_INIT_DATA_MAX_AGE")
+    # How long a captured `initData` string stays usable, in seconds. It is a bearer
+    # credential: anything holding it can call this API as that user until it expires,
+    # and replay within the window is by design (the signature is checked, not consumed).
+    # One hour, not the day this used to default to — the Telegram client refreshes
+    # `initData` on its own, so shortening the window costs no usability and bounds the
+    # damage from a leaked one.
+    init_data_max_age_seconds: int = Field(default=3600, validation_alias="WEBAPP_INIT_DATA_MAX_AGE")
 
 
 class AnalyticsSettings(BaseSettings):

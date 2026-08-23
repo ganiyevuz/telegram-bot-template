@@ -32,10 +32,6 @@ class CacheKeys:
         return cls._key("user", user_id, "is_admin")
 
     @classmethod
-    def user_is_premium(cls, user_id: int) -> str:
-        return cls._key("user", user_id, "is_premium")
-
-    @classmethod
     def user_count(cls) -> str:
         return cls._key("user", "count")
 
@@ -47,7 +43,6 @@ class CacheKeys:
             cls.user_language(user_id),
             cls.user_first_name(user_id),
             cls.user_is_admin(user_id),
-            cls.user_is_premium(user_id),
         ]
 
     @classmethod

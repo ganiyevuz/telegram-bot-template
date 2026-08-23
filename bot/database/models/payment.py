@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import enum
 
-from sqlalchemy import BigInteger, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from bot.database.models.base import Base, created_at
@@ -18,7 +18,13 @@ class PaymentStatus(enum.StrEnum):
 
 class PaymentModel(Base):
     __tablename__ = "payments"
-    __table_args__ = (UniqueConstraint("telegram_payment_charge_id", name="uq_payments_charge_id"),)
+    __table_args__ = (
+        UniqueConstraint("telegram_payment_charge_id", name="uq_payments_charge_id"),
+        # Serves the `still_paid` EXISTS in `PaymentRepository.expire_premium`, which ran
+        # hourly as a sequential scan over the whole table. Column order matters:
+        # `status` is the equality predicate, `subscription_expires_at` the range one.
+        Index("ix_payments_status_expires_at", "status", "subscription_expires_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)

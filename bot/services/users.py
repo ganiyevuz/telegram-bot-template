@@ -83,17 +83,26 @@ class UserService:
         await self._cache.delete(CacheKeys.user_is_admin(user_id))
 
     async def is_premium(self, user_id: int) -> bool:
-        key = CacheKeys.user_is_premium(user_id)
-        cached = await self._cache.get(key, bool)
-        if cached is not None:
-            return cached
-        value = await self._users.is_premium(user_id)
-        await self._cache.set(key, value, ttl=USER_TTL)
-        return value
+        """Deliberately UNCACHED, unlike every other getter here.
+
+        Cache-aside inverts under the Mini App's own refresh: `index.html` calls
+        `load()` from the `tg.openInvoice` "paid" callback, which fires when the CLIENT
+        confirms payment — before the bot has received the `successful_payment` update.
+        That read therefore fetches `false` from Postgres, `set_premium` invalidates
+        while it is in flight, and the read then writes its stale `false` back, pinning
+        it for the full USER_TTL. The page says "Not subscribed" to someone who has just
+        paid, for five minutes, with no event left to correct it.
+
+        It is a single-row primary-key lookup, called about once per Mini App page load.
+        The cache bought almost nothing and cost a correctness bug on the one value where
+        being wrong is most visible to a paying user. `CacheKeys.user_is_premium` was
+        removed with it rather than left orphaned.
+        """
+        return await self._users.is_premium(user_id)
 
     async def set_premium(self, user_id: int, *, value: bool) -> None:
+        # No invalidation: `is_premium()` above reads straight through to Postgres.
         await self._users.set_premium(user_id, value=value)
-        await self._cache.delete(CacheKeys.user_is_premium(user_id))
 
     async def mark_blocked(self, user_id: int, *, value: bool) -> None:
         await self._users.set_blocked(user_id, value=value)

@@ -124,14 +124,25 @@ class PaymentService:
             return False
 
         await self._users.set_premium(user_id, value=True)
-        await self._analytics.log_event(
-            BaseEvent(
-                user_id=user_id,
-                event_type="Complete Purchase",
-                revenue=payment.total_amount,
-                event_properties=EventProperties(payment_method="Stars"),
-            ),
-        )
+        try:
+            await self._analytics.log_event(
+                BaseEvent(
+                    user_id=user_id,
+                    event_type="Complete Purchase",
+                    revenue=payment.total_amount,
+                    event_properties=EventProperties(payment_method="Stars"),
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - analytics must never break a payment
+            # We are PAST the commit: the charge is durable and the user is credited.
+            # Letting a buffered-analytics failure (a Redis `LPUSH` refused under
+            # `maxmemory`+`noeviction`, say) escape here means `payment_succeeded` never
+            # sends the confirmation and bot/handlers/errors.py apologises with
+            # "something went wrong" — to someone who has just been charged. A retry
+            # cannot fix it either: `uq_payments_charge_id` now rejects the charge as a
+            # duplicate. Same call, same reasoning, same shape as
+            # bot/middlewares/analytics.py's "analytics must never break a handler".
+            logger.warning(f"payment analytics failed | user_id: {user_id} | error: {exc}")
         logger.info(f"payment recorded | user_id: {user_id} | amount: {payment.total_amount}")
         return True
 
@@ -188,6 +199,22 @@ class PaymentService:
         # self-heal through the command and has to fix the row by hand.
         await bot.refund_star_payment(user_id=user_id, telegram_payment_charge_id=charge_id)
         await self._payments.mark_refunded(charge_id)
-        await self._users.set_premium(user_id, value=False)
+        # Only revoke when NOTHING is left running. Telegram permits concurrent
+        # subscriptions and a user can simply have bought twice, so refunding one charge
+        # says nothing about the others. Clearing unconditionally revoked a period the
+        # user had paid for and still held — permanently, since the sweep only ever
+        # clears and the credit cannot be replayed past `uq_payments_charge_id`.
+        # `mark_refunded` flushed above, so this query sees the charge as REFUNDED and
+        # will not count it as live; both writes are still one transaction.
+        remaining = await self._payments.active_subscription(user_id)
+        if remaining is None:
+            # `set_premium` -> `UserRepository._update` is what commits the pair.
+            await self._users.set_premium(user_id, value=False)
+        else:
+            # Nothing to write to `users`, so the flushed refund needs its own commit.
+            await self._payments.commit()
+            logger.info(
+                f"premium kept after refund | user_id: {user_id} | live charge: {remaining.telegram_payment_charge_id}",
+            )
         logger.info(f"payment refunded | user_id: {user_id} | charge: {charge_id}")
         return True
