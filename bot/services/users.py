@@ -82,6 +82,10 @@ class UserService:
         await self._users.set_admin(user_id, value=value)
         await self._cache.delete(CacheKeys.user_is_admin(user_id))
 
+    async def set_premium(self, user_id: int, *, value: bool) -> None:
+        await self._users.set_premium(user_id, value=value)
+        await self._cache.delete(CacheKeys.user_is_premium(user_id))
+
     async def mark_blocked(self, user_id: int, *, value: bool) -> None:
         await self._users.set_blocked(user_id, value=value)
         await self._cache.invalidate_user(user_id)

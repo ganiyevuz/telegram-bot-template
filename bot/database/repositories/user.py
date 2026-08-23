@@ -72,6 +72,9 @@ class UserRepository:
     async def set_blocked(self, user_id: int, *, value: bool) -> None:
         await self._update(user_id, is_block=value)
 
+    async def set_premium(self, user_id: int, *, value: bool) -> None:
+        await self._update(user_id, is_premium=value)
+
     async def _update(self, user_id: int, **values: object) -> None:
         await self._session.execute(update(UserModel).where(UserModel.id == user_id).values(**values))
         await self._session.commit()

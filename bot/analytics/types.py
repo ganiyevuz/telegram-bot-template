@@ -18,7 +18,7 @@ EventType = Literal[
     "Complete Purchase",
     "Error",
 ]
-PaymentMethod = Literal["Stripe", "PayPal", "Square", "Crypto"]
+PaymentMethod = Literal["Stripe", "PayPal", "Square", "Crypto", "Stars"]
 
 
 class UserProperties(BaseModel):

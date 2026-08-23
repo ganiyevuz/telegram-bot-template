@@ -18,6 +18,7 @@ from bot.cache.ratelimit import TokenBucket
 from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import PaymentRepository, UserRepository
+from bot.services.payments import PaymentService
 from bot.services.users import UserService
 from bot.telegram.factory import create_bot
 
@@ -135,6 +136,16 @@ class RequestProvider(Provider):
     @provide
     def user_service(self, users: UserRepository, cache: CacheService) -> UserService:
         return UserService(users, cache)
+
+    @provide
+    def payment_service(
+        self,
+        payments: PaymentRepository,
+        users: UserService,
+        analytics: AbstractAnalyticsLogger,
+        settings: Settings,
+    ) -> PaymentService:
+        return PaymentService(payments, users, analytics, settings.payments)
 
 
 def create_container(settings: Settings) -> AsyncContainer:

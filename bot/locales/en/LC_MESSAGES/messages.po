@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 10:45+0500\n"
+"POT-Creation-Date: 2026-08-23 11:20+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -31,19 +31,19 @@ msgstr "could not queue, try again later"
 msgid "broadcast queued: <code>{id}</code>"
 msgstr "broadcast queued: <code>{id}</code>"
 
-#: bot/handlers/callbacks.py:32 bot/handlers/info.py:11
+#: bot/handlers/callbacks.py:41 bot/handlers/info.py:11
 msgid "about"
 msgstr "ℹ️ <b>About</b>"
 
-#: bot/handlers/callbacks.py:37 bot/handlers/support.py:20
+#: bot/handlers/callbacks.py:46 bot/handlers/support.py:20
 msgid "support text"
 msgstr "🤝 Support"
 
-#: bot/handlers/callbacks.py:42 bot/handlers/menu.py:13
+#: bot/handlers/callbacks.py:51 bot/handlers/menu.py:13
 msgid "title main keyboard"
 msgstr "📒 <b>Menu</b>."
 
-#: bot/handlers/callbacks.py:49
+#: bot/handlers/callbacks.py:66
 msgid "not available yet"
 msgstr "Not available yet."
 
@@ -55,32 +55,29 @@ msgstr "⚠️ Something went wrong. Please try again."
 msgid "export queued"
 msgstr "export queued"
 
+#: bot/handlers/payments.py:29
+msgid "Premium access"
+msgstr "Premium access"
+
+#: bot/handlers/payments.py:30
+#, python-brace-format
+msgid "Unlock premium features for {days} days"
+msgstr "Unlock premium features for {days} days"
+
+#: bot/handlers/payments.py:35
+msgid "Premium"
+msgstr "Premium"
+
+#: bot/handlers/payments.py:53
+msgid "payment received, premium is active"
+msgstr "✅ Payment received, premium is active."
+
 #: bot/handlers/start.py:14
 msgid "first message"
 msgstr ""
 "👋 <b>Welcome to the bot.</b>\n"
 "\n"
 "To start using the bot you can start with /menu"
-
-#: bot/keyboards/default_commands.py:16
-msgid "help"
-msgstr "help"
-
-#: bot/keyboards/default_commands.py:17
-msgid "developer contact details"
-msgstr "developer contact details"
-
-#: bot/keyboards/default_commands.py:18
-msgid "main menu"
-msgstr "main menu"
-
-#: bot/keyboards/default_commands.py:19
-msgid "your settings"
-msgstr "your settings"
-
-#: bot/keyboards/default_commands.py:20
-msgid "support contacts"
-msgstr "support contacts"
 
 #: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
 #: bot/keyboards/inline/menu.py:14
@@ -105,4 +102,19 @@ msgstr "Info"
 
 #~ msgid "user counter: <b>{count}</b>"
 #~ msgstr "user counter: <b>{count}</b>"
+
+#~ msgid "help"
+#~ msgstr "help"
+
+#~ msgid "developer contact details"
+#~ msgstr "developer contact details"
+
+#~ msgid "main menu"
+#~ msgstr "main menu"
+
+#~ msgid "your settings"
+#~ msgstr "your settings"
+
+#~ msgid "support contacts"
+#~ msgstr "support contacts"
 

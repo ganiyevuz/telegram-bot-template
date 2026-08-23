@@ -76,6 +76,15 @@ class WebhookSettings(BaseSettings):
         return f"{self.base_url}{self.path}"
 
 
+class PaymentSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="PAYMENT_")
+
+    currency: str = "XTR"
+    premium_price: int = 100  # Stars for a 30-day period
+    provider_token: SecretStr | None = Field(default=None, validation_alias="PROVIDER_TOKEN")
+    subscription_period_days: int = 30
+
+
 class AnalyticsSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV)
 
@@ -101,6 +110,7 @@ class Settings(BaseSettings):
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
+    payments: PaymentSettings = Field(default_factory=PaymentSettings)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
