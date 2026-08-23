@@ -15,7 +15,21 @@ if TYPE_CHECKING:
 
 
 async def register_middlewares(dp: Dispatcher, container: AsyncContainer) -> None:
-    """Register the update pipeline. Order is load-bearing — see spec section 7."""
+    """Register the update pipeline.
+
+    Registration order here does NOT control runtime order: aiogram runs every
+    OUTER middleware registered anywhere before any INNER one, regardless of
+    where either was registered. aiogram also wires its own outer middlewares
+    (an error boundary, `UserContextMiddleware`, `FSMContextMiddleware`) onto
+    every `Dispatcher` before any middleware registered here runs. And its own
+    `I18nMiddleware.setup()` — used by `ACLMiddleware` below — registers ACL as
+    OUTER, so i18n resolves the locale before `AuthMiddleware` (INNER) sets the
+    user. The measured chain on `dp.update` is: aiogram's own
+    (error boundary, `UserContextMiddleware`, `FSMContextMiddleware`), then
+    dishka's `ContainerMiddleware`, then ours: `DedupMiddleware`,
+    `LoggingMiddleware`, `MetricsMiddleware`, `ACLMiddleware` (OUTER, via
+    `.setup()`), then the INNER middlewares (`AuthMiddleware`, ...).
+    """
     from .analytics import AnalyticsMiddleware  # noqa: PLC0415
     from .auth import AuthMiddleware  # noqa: PLC0415
     from .dedup import DedupMiddleware  # noqa: PLC0415

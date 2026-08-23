@@ -62,12 +62,12 @@ async def lifespan(settings: Settings) -> AsyncIterator[AppContext]:
     _setup_sentry(settings)
 
     container = create_container(settings)
-    bot = await container.get(Bot)
-    dp = await build_dispatcher(container)
-
-    info = await bot.get_me()
-    logger.info(f"bot started | @{info.username} | id: {info.id}")
     try:
+        bot = await container.get(Bot)
+        dp = await build_dispatcher(container)
+
+        info = await bot.get_me()
+        logger.info(f"bot started | @{info.username} | id: {info.id}")
         yield AppContext(container=container, bot=bot, dp=dp)
     finally:
         logger.info("shutting down")
