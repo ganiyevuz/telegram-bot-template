@@ -1342,6 +1342,7 @@ git commit -m "feat(webapp): verify Telegram Mini App initData with constant-tim
 
 **Interfaces:**
 - Consumes: `validate_init_data`, `WebAppUser`, `InvalidInitData`, `ExpiredInitData` (Task 8); `UserService`, `PaymentService`.
+- **Ordering:** this task needs `PaymentService.subscription_link`, which Task 6 adds. Task 6 must land first.
 - Produces: FastAPI dependency `webapp_user(...) -> WebAppUser`; routes `GET /api/webapp/me` and `POST /api/webapp/invoice`; counter `WEBAPP_INIT_DATA_REJECTIONS`.
 
 **No session tokens, deliberately.** `initData` is revalidated on every request rather than exchanged for a JWT: it is a cheap HMAC, Telegram refreshes it client-side, and it keeps the API replicas completely stateless — no shared session store, no token lifecycle, no revocation problem. That is the multi-replica-correct choice and it matches everything else in this architecture.
@@ -1368,7 +1369,7 @@ Mount `bot/webapp/static/` at `/webapp` with FastAPI's `StaticFiles`, `html=True
 
 - [ ] **Step 4: Verify authentication end to end**
 
-Write `webappcheck.py`, run it with `uv run --with httpx2`, paste output, delete it. It must show:
+Write `webappcheck.py`, run it with `uv run --with httpx python webappcheck.py`, paste output, delete it. (`httpx` is NOT a project dependency — do not `uv add` it for a throwaway check; `--with` installs it for that one invocation. Drive the app with `httpx.ASGITransport(app=app)` so no port is bound.) It must show:
 - a request with **no** `Authorization` header → **401**
 - a request with a **forged** `initData` (valid shape, wrong signature) → **401**
 - a request with a **correctly signed** `initData` → **200**, and the body naming the signing user
@@ -1421,6 +1422,22 @@ Send `tg.initData` — **never** `tg.initDataUnsafe`. The latter is the unsigned
 - [ ] **Step 3: Add the launch button and deep link**
 
 Add a `WebAppInfo` button to `main_keyboard()` when `WEBAPP_URL` is configured (omit it when unset — a `web_app` button with an empty URL is rejected by Telegram, the same class of bug as the existing `contacts_keyboard` issue recorded in the phase 1-6 log).
+
+`main_keyboard()` currently takes **no arguments**, so this is not a one-file change. Follow the pattern `contacts_keyboard`/`support_keyboard` already establish in `bot/keyboards/inline/contacts.py`: the keyboard takes the URL as a parameter and the *handler* injects settings. Concretely:
+
+```python
+def main_keyboard(webapp_url: str | None = None) -> InlineKeyboardMarkup:
+```
+
+Do **not** call `get_settings()` inside the keyboard module — the phase 1-6 work removed import-time and hidden global settings access on purpose, and the established convention here is parameter-in.
+
+There are exactly four call sites, all of which must pass the URL:
+- `bot/handlers/start.py:14` — `start_handler` has no `settings`; add `settings: FromDishka[Settings]`.
+- `bot/handlers/menu.py:13` — `menu_handler` has no `settings`; add `settings: FromDishka[Settings]`.
+- `bot/handlers/callbacks.py:41` (`info_callback`) — has no `settings`; add it.
+- `bot/handlers/callbacks.py:51` (`back_callback`) — has no `settings`; add it.
+
+`support_callback` in the same file already injects `settings: FromDishka[Settings]` — copy its exact form. Both `start.py` and `menu.py` will need the `# ruff: noqa: TC001, TC002` header (or an existing one extended) once `Settings` appears in a runtime-resolved handler signature; check whether they already have it before adding a duplicate.
 
 Handle `t.me/<bot>?startapp=<payload>`: it arrives as `/start <payload>`, which `find_command_argument` already extracts and `AuthMiddleware` already stores as `referrer`. Confirm that path works for `startapp` as well as `start`, and say so in your report — no new code should be needed.
 
