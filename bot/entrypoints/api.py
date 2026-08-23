@@ -53,7 +53,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # bot/handlers/errors.py's error handler swallows it and the webhook still
         # returns 200.
         await ctx.dp.emit_startup(bot=ctx.bot)
-        await set_default_commands(ctx.bot)
+        await set_default_commands(ctx.bot, ctx.i18n)
         if settings.webhook.enabled:
             await ctx.bot.set_webhook(
                 settings.webhook.url,

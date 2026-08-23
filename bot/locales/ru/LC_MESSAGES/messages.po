@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 10:28+0500\n"
+"POT-Creation-Date: 2026-08-23 10:45+0500\n"
 "PO-Revision-Date: 2024-01-15 12:59+0400\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -62,6 +62,26 @@ msgstr ""
 "👋 <b>Добро пожаловать в бот.</b>\n"
 "\n"
 "Чтобы начать пользоваться ботом можете начать с /menu"
+
+#: bot/keyboards/default_commands.py:16
+msgid "help"
+msgstr "помощь"
+
+#: bot/keyboards/default_commands.py:17
+msgid "developer contact details"
+msgstr "контакты разработчика"
+
+#: bot/keyboards/default_commands.py:18
+msgid "main menu"
+msgstr "главное меню"
+
+#: bot/keyboards/default_commands.py:19
+msgid "your settings"
+msgstr "ваши настройки"
+
+#: bot/keyboards/default_commands.py:20
+msgid "support contacts"
+msgstr "контакты поддержки"
 
 #: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
 #: bot/keyboards/inline/menu.py:14

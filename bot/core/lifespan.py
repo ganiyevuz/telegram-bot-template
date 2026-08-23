@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.utils.i18n.core import I18n
 from dishka.integrations.aiogram import setup_dishka
 from loguru import logger
 from sentry_sdk.integrations.loguru import LoggingLevels, LoguruIntegration
@@ -29,6 +30,7 @@ class AppContext:
     container: AsyncContainer
     bot: Bot
     dp: Dispatcher
+    i18n: I18n
 
 
 def _setup_sentry(settings: Settings) -> None:
@@ -64,11 +66,12 @@ async def lifespan(settings: Settings) -> AsyncIterator[AppContext]:
     container = create_container(settings)
     try:
         bot = await container.get(Bot)
+        i18n = await container.get(I18n)
         dp = await build_dispatcher(container)
 
         info = await bot.get_me()
         logger.info(f"bot started | @{info.username} | id: {info.id}")
-        yield AppContext(container=container, bot=bot, dp=dp)
+        yield AppContext(container=container, bot=bot, dp=dp, i18n=i18n)
     finally:
         logger.info("shutting down")
         await container.close()

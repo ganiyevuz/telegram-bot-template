@@ -29,7 +29,7 @@ async def main() -> None:
 
     async with lifespan(settings) as ctx:
         await ctx.bot.delete_webhook(drop_pending_updates=False)
-        await set_default_commands(ctx.bot)
+        await set_default_commands(ctx.bot, ctx.i18n)
         try:
             # The container owns the Bot, so it — not the dispatcher — closes its session.
             await ctx.dp.start_polling(

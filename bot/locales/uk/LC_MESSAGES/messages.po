@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 10:28+0500\n"
+"POT-Creation-Date: 2026-08-23 10:45+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: uk\n"
@@ -59,6 +59,26 @@ msgstr "експорт поставлено в чергу"
 #: bot/handlers/start.py:14
 msgid "first message"
 msgstr ""
+
+#: bot/keyboards/default_commands.py:16
+msgid "help"
+msgstr "довідка"
+
+#: bot/keyboards/default_commands.py:17
+msgid "developer contact details"
+msgstr "контакти розробника"
+
+#: bot/keyboards/default_commands.py:18
+msgid "main menu"
+msgstr "головне меню"
+
+#: bot/keyboards/default_commands.py:19
+msgid "your settings"
+msgstr "ваші налаштування"
+
+#: bot/keyboards/default_commands.py:20
+msgid "support contacts"
+msgstr "контакти підтримки"
 
 #: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
 #: bot/keyboards/inline/menu.py:14

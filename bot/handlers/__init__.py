@@ -1,6 +1,6 @@
 from aiogram import Router
 
-from . import broadcast, callbacks, export_users, info, menu, start, support
+from . import broadcast, callbacks, chat_member, export_users, info, menu, start, support
 
 
 def get_handlers_router() -> Router:
@@ -12,5 +12,6 @@ def get_handlers_router() -> Router:
     router.include_router(export_users.router)
     router.include_router(broadcast.router)
     router.include_router(callbacks.router)
+    router.include_router(chat_member.router)
 
     return router
