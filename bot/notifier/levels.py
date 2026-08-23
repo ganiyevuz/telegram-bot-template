@@ -19,12 +19,8 @@ class AlertLevel(enum.StrEnum):
             AlertLevel.CRITICAL: "🚨",
         }[self]
 
-    def format(self, title: str, body: str, suppressed: int = 0) -> str:  # type: ignore[override]
+    def render(self, title: str, body: str, suppressed: int = 0) -> str:
         """The message text. Everything caller-supplied is HTML-escaped.
-
-        Shadows `str.format` deliberately — `AlertLevel` is a `StrEnum` so it inherits
-        that method, but nothing in this codebase calls an `AlertLevel` value's
-        `str.format`; this is the notifier's message-rendering entry point instead.
 
         The bot's default parse mode is HTML (bot/telegram/factory.py), and both `title`
         and `body` can carry an exception message, a URL, or whatever a caller POSTed to

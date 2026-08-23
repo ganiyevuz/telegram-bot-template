@@ -28,7 +28,7 @@ async def deliver_alert(level: str, title: str, body: str, suppressed: int = 0) 
         return False
 
     bot = await container.get(Bot)
-    text = AlertLevel(level).format(title, body, suppressed)
+    text = AlertLevel(level).render(title, body, suppressed)
     topic_id = settings.notifier.topic_id
 
     try:
