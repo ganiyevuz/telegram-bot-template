@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hmac
 import ipaddress
 from typing import TYPE_CHECKING, Annotated
 
@@ -38,16 +39,31 @@ async def webhook(
 
     # `.secret` is a SecretStr — comparing it to the header directly would never
     # match (SecretStr.__eq__ only matches another SecretStr), silently rejecting
-    # every request once a secret is configured.
+    # every request once a secret is configured. `hmac.compare_digest` (not `!=`)
+    # is required here: a plain string compare short-circuits on the first
+    # differing byte, leaking the secret one byte at a time to a timing attack —
+    # this is the same "timing oracle" the Mini App spec warns about for the
+    # analogous initData check.
     secret = settings.webhook.secret.get_secret_value()
-    if secret and x_telegram_bot_api_secret_token != secret:
+    if secret and not hmac.compare_digest(x_telegram_bot_api_secret_token, secret):
         logger.warning("webhook rejected | bad secret token")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
     if settings.webhook.verify_source_ip:
-        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
-            request.client.host if request.client else ""
-        )
+        # `X-Forwarded-For` is attacker-controlled unless we know a trusted proxy
+        # is the one setting it — trusting it unconditionally would let anyone
+        # bypass this allowlist with `X-Forwarded-For: 149.154.160.1`. Only read
+        # it when `trust_proxy_headers` says a proxy we control fronts this
+        # process, and even then take the LAST entry: a well-behaved proxy
+        # appends the address it saw the request come from rather than
+        # overwriting the header, so the last entry is the one our own
+        # infrastructure vouches for — an attacker-supplied first entry does not
+        # change that.
+        if settings.webhook.trust_proxy_headers:
+            forwarded = request.headers.get("x-forwarded-for", "")
+            client_ip = forwarded.rsplit(",", 1)[-1].strip() if forwarded else ""
+        else:
+            client_ip = request.client.host if request.client else ""
         if not _from_telegram(client_ip):
             logger.warning(f"webhook rejected | source ip not Telegram: {client_ip}")
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")

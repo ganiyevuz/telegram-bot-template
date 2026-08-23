@@ -17,6 +17,19 @@ if TYPE_CHECKING:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    if settings.webhook.enabled and not settings.webhook.secret.get_secret_value():
+        # Fail loud at startup, not silently at request time: the route's own
+        # secret check (`if secret and ...`) only rejects requests once a secret
+        # IS configured — an empty secret skips it entirely, and combined with
+        # source-IP verification being spoofable without a trusted proxy, an
+        # empty WEBHOOK_SECRET means anyone can forge updates as any Telegram
+        # user. A warning buried in logs during an incident is easy to miss; a
+        # process that refuses to start is not.
+        msg = (
+            "WEBHOOK_SECRET must be set when USE_WEBHOOK=True — the webhook endpoint "
+            "would otherwise accept forged updates from anyone"
+        )
+        raise RuntimeError(msg)
     app.state.settings = settings
     async with app_lifespan(settings) as ctx:
         app.state.ctx = ctx

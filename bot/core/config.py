@@ -67,6 +67,7 @@ class WebhookSettings(BaseSettings):
     path: str = "/webhook"
     secret: SecretStr = SecretStr("")
     verify_source_ip: bool = Field(default=True, validation_alias="WEBHOOK_VERIFY_SOURCE_IP")
+    trust_proxy_headers: bool = Field(default=False, validation_alias="WEBHOOK_TRUST_PROXY_HEADERS")
     host: str = "0.0.0.0"  # noqa: S104
     port: int = 8080
 
