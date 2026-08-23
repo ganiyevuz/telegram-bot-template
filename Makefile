@@ -1,5 +1,8 @@
-include .env
-export
+# `.env` is deliberately NOT included/exported here. `docker compose` reads it itself and
+# parses it properly; make's `include` does not — it keeps the quotes around `DB_USER="tgbot"`
+# (postgres then bootstraps with a literal `""tgbot""` and crash-loops) and keeps the
+# whitespace before a trailing `# comment` (compose then rejects `GRAFANA_PORT=3000   ` as an
+# invalid host port). No target below needs a variable from .env.
 
 LOCALES = bot/locales
 
@@ -11,6 +14,10 @@ help: ## Display this help screen
 deps:	## Install dependencies
 	@uv sync --frozen
 .PHONY: deps
+
+run-polling: ## Run the bot with long polling (development only; no API, no metrics)
+	uv run python -m bot
+.PHONY: run-polling
 
 compose-up: ## Run docker compose
 	docker compose up --build -d
@@ -32,23 +39,23 @@ compose-build: ## docker compose build
 compose-ps: ## docker compose ps
 	docker compose ps
 
-compose-exec: ## Exec command in app container
-	docker compose exec app $(args)
+compose-exec: ## Exec command in the api container, e.g. make compose-exec args="alembic current"
+	docker compose exec api $(args)
 
-logs:
+logs: ## Tail logs of one service, e.g. make logs args=api
 	docker compose logs $(args) -f
 
 # MIGRATIONS
 mm: ## Create new migrations with args name in docker compose
-	docker compose exec bot alembic revision --autogenerate -m "$(args)"
+	docker compose exec api alembic revision --autogenerate -m "$(args)"
 .PHONY: mm
 
 migrate: ## Upgrade migrations in docker compose
-	docker compose exec bot alembic upgrade head
+	docker compose exec api alembic upgrade head
 .PHONY: migrate
 
 downgrade: ## Downgrade to args name migration in docker compose
-	docker compose exec bot alembic downgrade $(args)
+	docker compose exec api alembic downgrade $(args)
 .PHONY: downgrade
 
 # STYLE
@@ -76,7 +83,7 @@ clean: ## Delete all temporary and generated files
 
 # BACKUPS
 backup:
-	docker compose exec bot scripts/postgres/backup
+	docker compose exec api scripts/postgres/backup
 .PHONY: backup
 
 mount-docker-backup:

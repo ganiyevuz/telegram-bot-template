@@ -16,4 +16,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 USER appuser
 
-CMD ["python", "-m", "bot"]
+# The API entrypoint, not `python -m bot` (long polling) — polling is a development
+# path and serves neither /metrics, /health/* nor the Mini App. The container port is
+# fixed at 8080; compose maps ${WEBHOOK_PORT} to it, so the host port stays configurable
+# while Prometheus can scrape a stable `api:8080`.
+CMD ["uvicorn", "bot.entrypoints.api:app", "--host", "0.0.0.0", "--port", "8080"]

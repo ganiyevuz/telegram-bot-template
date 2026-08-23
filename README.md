@@ -33,12 +33,28 @@
 
 ### 🐳 Running in Docker _(recommended method)_
 
+The compose stack runs the **API** entrypoint (`bot.entrypoints.api`) — the `api` service is
+`uvicorn` serving `/webhook`, the health probes `/health/live` and `/health/ready`, Prometheus
+`/metrics`, and the Mini App at `/webapp` + `/api/webapp/*`. It is the deployment path, and the
+only one that is horizontally scalable.
+
 -   configure environment variables in `.env` file
+
+    Port variables are **host** bindings only — the container ports are pinned in
+    `docker-compose.yml`. Two exceptions: `DB_PORT` and `REDIS_PORT` are also what the app dials
+    inside the compose network (`pgbouncer:5432`, `redis:6379`), so leave them at `5432`/`6379`
+    and change the left-hand side of the mapping if a host port is taken.
 
 -   start services
 
     ```bash
     docker compose up -d --build
+    ```
+
+-   check it is up
+
+    ```bash
+    curl localhost:8080/health/ready   # 200 once Postgres and Redis are reachable
     ```
 
 ### 💻 Running on Local Machine
@@ -53,10 +69,12 @@
 
 -   configure environment variables in `.env` file
 
--   start telegram bot
+-   start telegram bot with long polling (**development only** — this path serves no HTTP at
+    all: no `/metrics`, no `/health/*`, no Mini App. Use the Docker stack, or run
+    `uvicorn bot.entrypoints.api:app`, for anything else)
 
     ```bash
-    uv run python -m bot
+    make run-polling   # == uv run python -m bot
     ```
 
 -   start admin panel
@@ -109,22 +127,22 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 | `WEBHOOK_SECRET`         | Secret key for securing the webhook communication                                           |
 | `WEBHOOK_VERIFY_SOURCE_IP` | Reject webhook requests not sourced from Telegram's published IP ranges (`True`/`False`)  |
 | `WEBHOOK_HOST`           | Hostname or IP address for the main application                                             |
-| `WEBHOOK_PORT`           | Port number for the main application                                                        |
+| `WEBHOOK_PORT`           | **Host** port published for the `api` service; the container always serves on `8080`        |
 | `WEBAPP_URL`             | Public HTTPS URL of the Mini App page (must be HTTPS; omitting it hides the launch button)  |
 | `WEBAPP_INIT_DATA_MAX_AGE` | Seconds a captured `initData` stays usable against `/api/webapp/*` (default `3600`)      |
 | `ADMIN_HOST`             | Hostname or IP address for the admin panel                                                  |
-| `ADMIN_PORT`             | Port number for the admin panel                                                             |
+| `ADMIN_PORT`             | **Host** port published for the admin panel; the container always serves on `5000`          |
 | `DEFAULT_ADMIN_EMAIL`    | Default email for the admin user                                                            |
 | `DEFAULT_ADMIN_PASSWORD` | Default password for the admin user                                                         |
 | `SECURITY_PASSWORD_HASH` | Hashing algorithm for user passwords (e.g., `bcrypt`)                                       |
 | `SECURITY_PASSWORD_SALT` | Salt value for user password hashing                                                        |
 | `DB_HOST`                | Hostname or IP address of the PostgreSQL database                                           |
-| `DB_PORT`                | Port number for the PostgreSQL database                                                     |
+| `DB_PORT`                | Port the app dials pgbouncer on — a **container** port; keep `5432` under Docker            |
 | `DB_USER`                | Username for authenticating with the PostgreSQL database                                    |
 | `DB_PASS`                | Password for authenticating with the PostgreSQL database                                    |
 | `DB_NAME`                | Name of the PostgreSQL database                                                             |
 | `REDIS_HOST`             | Hostname or IP address of the Redis database                                                |
-| `REDIS_PORT`             | Port number for the Redis database                                                          |
+| `REDIS_PORT`             | Port the app dials Redis on — a **container** port; keep `6379` under Docker                |
 | `REDIS_PASS`             | Password for authenticating with the Redis database                                         |
 | `SENTRY_DSN`             | Sentry DSN (Data Source Name) for error tracking                                            |
 | `AMPLITUDE_API_KEY`      | API key for Amplitude analytics                                                             |
