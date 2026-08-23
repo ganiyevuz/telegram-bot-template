@@ -11,7 +11,7 @@ from dishka import AsyncContainer, Provider, Scope, make_async_container, provid
 from redis.asyncio import ConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from bot.analytics.amplitude import AmplitudeTelegramLogger
+from bot.analytics.buffered import BufferedAnalyticsLogger
 from bot.analytics.types import AbstractAnalyticsLogger, NullAnalyticsLogger
 from bot.cache.ratelimit import TokenBucket
 from bot.cache.service import CacheService
@@ -87,9 +87,9 @@ class AppProvider(Provider):
         return TokenBucket(redis, rate=rate, capacity=max(1.0, rate), name="throttle")
 
     @provide
-    def analytics(self, settings: Settings) -> AbstractAnalyticsLogger:
+    def analytics(self, settings: Settings, redis: Redis) -> AbstractAnalyticsLogger:
         if settings.analytics.amplitude_api_key:
-            return AmplitudeTelegramLogger(api_token=settings.analytics.amplitude_api_key)
+            return BufferedAnalyticsLogger(redis, settings.analytics.buffer_key)
         return NullAnalyticsLogger()
 
 
