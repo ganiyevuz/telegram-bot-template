@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2024-01-15 12:58+0400\n"
+"POT-Creation-Date: 2026-08-23 04:55+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: uk\n"
@@ -17,9 +17,14 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: bot/handlers/errors.py:43 bot/handlers/errors.py:45
+msgid "something went wrong"
+msgstr "⚠️ Щось пішло не так. Спробуйте ще раз."
 
 #: bot/handlers/export_users.py:29
+#, python-brace-format
 msgid "user counter: <b>{count}</b>"
 msgstr ""
 
@@ -27,11 +32,15 @@ msgstr ""
 msgid "about"
 msgstr ""
 
-#: bot/handlers/menu.py:13 bot/handlers/start.py:16
+#: bot/handlers/menu.py:13
 msgid "title main keyboard"
 msgstr ""
 
-#: bot/handlers/support.py:13
+#: bot/handlers/start.py:14
+msgid "first message"
+msgstr ""
+
+#: bot/handlers/support.py:20
 msgid "support text"
 msgstr ""
 
@@ -56,13 +65,10 @@ msgstr ""
 msgid "info button"
 msgstr ""
 
-#: bot/middlewares/auth.py:41
-msgid "first message"
-msgstr ""
-
 #~ msgid ""
 #~ "👋 <b>Добро пожаловать в бот.</b>\n"
 #~ "<i>Это сообщение появляет только один раз</i>\n"
 #~ "\n"
 #~ "Чтобы начать пользоваться ботом можете начать с /menu"
 #~ msgstr ""
+

@@ -13,6 +13,7 @@ from sentry_sdk.integrations.loguru import LoggingLevels, LoguruIntegration
 from bot.core.di import create_container
 from bot.core.logging import setup_logging
 from bot.handlers import get_handlers_router
+from bot.handlers.errors import register_error_handler
 from bot.middlewares import register_middlewares
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ async def build_dispatcher(container: AsyncContainer) -> Dispatcher:
     setup_dishka(container=container, router=dp, auto_inject=True)
     await register_middlewares(dp, container)
     dp.include_router(get_handlers_router())
+    register_error_handler(dp)
     return dp
 
 

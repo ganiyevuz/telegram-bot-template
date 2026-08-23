@@ -6,6 +6,7 @@ from loguru import logger
 from redis.exceptions import RedisError
 
 from bot.cache.keys import CacheKeys
+from bot.middlewares.metrics import THROTTLED
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -51,6 +52,7 @@ class ThrottlingMiddleware(BaseMiddleware):
 
         if not granted:
             logger.debug(f"throttled | user_id: {user.id}")
+            THROTTLED.labels(scope="user").inc()
             return None
 
         return await handler(event, data)

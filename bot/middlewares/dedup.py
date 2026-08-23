@@ -7,6 +7,7 @@ from loguru import logger
 from redis.exceptions import RedisError
 
 from bot.cache.keys import CacheKeys
+from bot.middlewares.metrics import DEDUP_HITS
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -51,6 +52,7 @@ class DedupMiddleware(BaseMiddleware):
 
         if not claimed:
             logger.warning(f"duplicate update dropped | update_id: {event.update_id}")
+            DEDUP_HITS.inc()
             return None
 
         return await handler(event, data)

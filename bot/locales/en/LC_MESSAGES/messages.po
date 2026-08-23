@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2024-01-15 12:58+0400\n"
+"POT-Creation-Date: 2026-08-23 04:55+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -16,9 +16,14 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: bot/handlers/errors.py:43 bot/handlers/errors.py:45
+msgid "something went wrong"
+msgstr "⚠️ Something went wrong. Please try again."
 
 #: bot/handlers/export_users.py:29
+#, python-brace-format
 msgid "user counter: <b>{count}</b>"
 msgstr "user counter: <b>{count}"
 
@@ -26,11 +31,18 @@ msgstr "user counter: <b>{count}"
 msgid "about"
 msgstr "ℹ️ <b>About</b>"
 
-#: bot/handlers/menu.py:13 bot/handlers/start.py:16
+#: bot/handlers/menu.py:13
 msgid "title main keyboard"
 msgstr "📒 <b>Menu</b>."
 
-#: bot/handlers/support.py:13
+#: bot/handlers/start.py:14
+msgid "first message"
+msgstr ""
+"👋 <b>Welcome to the bot.</b>\n"
+"\n"
+"To start using the bot you can start with /menu"
+
+#: bot/handlers/support.py:20
 msgid "support text"
 msgstr "🤝 Support"
 
@@ -55,9 +67,3 @@ msgstr "🆙 Get PREMIUM"
 msgid "info button"
 msgstr "Info"
 
-#: bot/middlewares/auth.py:41
-msgid "first message"
-msgstr ""
-"👋 <b>Welcome to the bot.</b>\n"
-"\n"
-"To start using the bot you can start with /menu"

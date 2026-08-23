@@ -2,7 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
+from aiogram.types import Update
 from loguru import logger
+
+from bot.core.logging import bind_correlation_id
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -101,6 +104,9 @@ class LoggingMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        if isinstance(event, Update):
+            bind_correlation_id(str(event.update_id))
+
         print_attrs: dict[str, Any] = {}
         message: Message | None = getattr(event, "message", None)
         callback_query: CallbackQuery | None = getattr(event, "callback_query", None)

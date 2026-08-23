@@ -21,6 +21,7 @@ async def register_middlewares(dp: Dispatcher, container: AsyncContainer) -> Non
     from .dedup import DedupMiddleware  # noqa: PLC0415
     from .i18n import ACLMiddleware  # noqa: PLC0415
     from .logging import LoggingMiddleware  # noqa: PLC0415
+    from .metrics import MetricsMiddleware  # noqa: PLC0415
     from .throttling import ThrottlingMiddleware  # noqa: PLC0415
 
     i18n = await container.get(I18n)
@@ -30,6 +31,7 @@ async def register_middlewares(dp: Dispatcher, container: AsyncContainer) -> Non
 
     dp.update.outer_middleware(DedupMiddleware(redis))
     dp.update.outer_middleware(LoggingMiddleware())
+    dp.update.outer_middleware(MetricsMiddleware())
     dp.message.outer_middleware(ThrottlingMiddleware(bucket))
 
     dp.message.middleware(AuthMiddleware())
