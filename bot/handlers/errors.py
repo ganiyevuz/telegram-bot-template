@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import sentry_sdk
 from aiogram import Router
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import CallbackQuery, ErrorEvent, Message
 from aiogram.utils.i18n import gettext as _
 from loguru import logger
@@ -36,10 +36,18 @@ async def on_error(event: ErrorEvent) -> bool:
         sentry_sdk.capture_exception(exception)
 
     target = event.update.message or event.update.callback_query
-    if isinstance(target, Message):
-        await target.answer(_("something went wrong"))
-    elif isinstance(target, CallbackQuery):
-        await target.answer(_("something went wrong"), show_alert=True)
+    try:
+        if isinstance(target, Message):
+            await target.answer(_("something went wrong"))
+        elif isinstance(target, CallbackQuery):
+            await target.answer(_("something went wrong"), show_alert=True)
+    except TelegramAPIError as exc:
+        # The apology itself can fail — the user blocked the bot, the update carries no
+        # chat to reply into, or Telegram is rate-limiting us. The original fault is
+        # already logged and reported above; losing the apology is not worth raising
+        # again, which in webhook mode would turn into another HTTP 500 and a Telegram
+        # retry storm.
+        logger.warning(f"failed to notify the user | cid: {cid} | {type(exc).__name__}: {exc}")
     return True
 
 
