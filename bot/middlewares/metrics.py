@@ -17,7 +17,11 @@ UPDATES = Counter(f"{PREFIX}_updates_total", "Updates processed.", ["event_type"
 UPDATE_DURATION = Histogram(f"{PREFIX}_update_duration_seconds", "Update processing time.", ["event_type"])
 THROTTLED = Counter(f"{PREFIX}_throttled_total", "Updates dropped by throttling.", ["scope"])
 DEDUP_HITS = Counter(f"{PREFIX}_dedup_hits_total", "Updates dropped as duplicates.")
-HANDLER_ERRORS = Counter(f"{PREFIX}_handler_errors_total", "Unhandled handler exceptions.", ["exception"])
+HANDLER_ERRORS = Counter(
+    f"{PREFIX}_handler_errors_total",
+    "Exceptions reaching the global error handler, including pre-handler middleware failures.",
+    ["exception"],
+)
 # Deliberately separate from HANDLER_ERRORS, which — despite its name — is also
 # where a dispatch-chain failure (e.g. FSMContextMiddleware hitting Redis) actually
 # gets counted today: aiogram's own `ErrorsMiddleware` wraps the ENTIRE outer-
