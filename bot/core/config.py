@@ -66,6 +66,7 @@ class WebhookSettings(BaseSettings):
     base_url: str = "https://example.com"
     path: str = "/webhook"
     secret: SecretStr = SecretStr("")
+    verify_source_ip: bool = Field(default=True, validation_alias="WEBHOOK_VERIFY_SOURCE_IP")
     host: str = "0.0.0.0"  # noqa: S104
     port: int = 8080
 
