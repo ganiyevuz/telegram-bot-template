@@ -2,6 +2,7 @@
 # provider method signatures via get_type_hints), so the imports must stay at module level
 from __future__ import annotations
 from collections.abc import AsyncIterable
+from typing import NewType
 
 from aiogram import Bot
 from aiogram.fsm.storage.base import DefaultKeyBuilder
@@ -19,6 +20,13 @@ from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import UserRepository
 from bot.services.users import UserService
 from bot.telegram.factory import create_bot
+
+# dishka resolves providers by type, so three bare `TokenBucket` providers would
+# collide (e.g. the inbound throttle bucket getting handed to an outbound send site).
+# These aliases keep the three buckets distinct without three subclasses.
+ThrottleBucket = NewType("ThrottleBucket", TokenBucket)
+GlobalSendBucket = NewType("GlobalSendBucket", TokenBucket)
+ChatSendBucket = NewType("ChatSendBucket", TokenBucket)
 
 
 class AppProvider(Provider):
@@ -62,8 +70,13 @@ class AppProvider(Provider):
         return async_sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
     @provide
-    async def bot(self, settings: Settings) -> AsyncIterable[Bot]:
-        bot = create_bot(settings)
+    async def bot(
+        self,
+        settings: Settings,
+        global_bucket: GlobalSendBucket,
+        chat_bucket: ChatSendBucket,
+    ) -> AsyncIterable[Bot]:
+        bot = create_bot(settings, global_bucket, chat_bucket)
         yield bot
         await bot.session.close()
 
@@ -82,9 +95,17 @@ class AppProvider(Provider):
         return CacheService(redis)
 
     @provide
-    def throttle_bucket(self, redis: Redis, settings: Settings) -> TokenBucket:
+    def throttle_bucket(self, redis: Redis, settings: Settings) -> ThrottleBucket:
         rate = 1.0 / settings.bot.rate_limit if settings.bot.rate_limit > 0 else 1.0
-        return TokenBucket(redis, rate=rate, capacity=max(1.0, rate), name="throttle")
+        return ThrottleBucket(TokenBucket(redis, rate=rate, capacity=max(1.0, rate), name="throttle"))
+
+    @provide
+    def global_send_bucket(self, redis: Redis) -> GlobalSendBucket:
+        return GlobalSendBucket(TokenBucket(redis, rate=30.0, capacity=30.0, name="send-global"))
+
+    @provide
+    def chat_send_bucket(self, redis: Redis) -> ChatSendBucket:
+        return ChatSendBucket(TokenBucket(redis, rate=1.0, capacity=1.0, name="send-chat"))
 
     @provide
     def analytics(self, settings: Settings, redis: Redis) -> AbstractAnalyticsLogger:

@@ -7,7 +7,6 @@ from aiogram.utils.i18n.core import I18n
 from redis.asyncio import Redis
 
 from bot.analytics.types import AbstractAnalyticsLogger
-from bot.cache.ratelimit import TokenBucket
 
 if TYPE_CHECKING:
     from aiogram import Dispatcher
@@ -38,10 +37,17 @@ async def register_middlewares(dp: Dispatcher, container: AsyncContainer) -> Non
     from .metrics import MetricsMiddleware  # noqa: PLC0415
     from .throttling import ThrottlingMiddleware  # noqa: PLC0415
 
+    # Imported lazily, not at module level: bot.core.di imports bot.telegram.factory,
+    # which imports bot.telegram.ratelimit, which imports bot.middlewares.metrics —
+    # and importing that submodule forces Python to run this package's __init__ first.
+    # A module-level `from bot.core.di import ThrottleBucket` here would therefore hit
+    # bot.core.di mid-initialization and fail with a circular-import error.
+    from bot.core.di import ThrottleBucket  # noqa: PLC0415
+
     i18n = await container.get(I18n)
     gateway = await container.get(AbstractAnalyticsLogger)
     redis = await container.get(Redis)
-    bucket = await container.get(TokenBucket)
+    bucket = await container.get(ThrottleBucket)
 
     dp.update.outer_middleware(DedupMiddleware(redis))
     dp.update.outer_middleware(LoggingMiddleware())

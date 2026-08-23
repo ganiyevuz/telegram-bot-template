@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from aiogram.types import TelegramObject
 
-    from bot.cache.ratelimit import TokenBucket
+    from bot.core.di import ThrottleBucket
 
 
 class ThrottlingMiddleware(BaseMiddleware):
@@ -23,7 +23,7 @@ class ThrottlingMiddleware(BaseMiddleware):
     other's allowance.
     """
 
-    def __init__(self, bucket: TokenBucket) -> None:
+    def __init__(self, bucket: ThrottleBucket) -> None:
         self._bucket = bucket
         super().__init__()
 

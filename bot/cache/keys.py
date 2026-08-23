@@ -56,3 +56,7 @@ class CacheKeys:
     @classmethod
     def broadcast(cls, broadcast_id: str) -> str:
         return cls._key("broadcast", broadcast_id)
+
+    @classmethod
+    def outbound(cls, scope: str, ident: int | str) -> str:
+        return cls._key("outbound", scope, ident)

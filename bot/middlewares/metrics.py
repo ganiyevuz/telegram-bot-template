@@ -33,6 +33,8 @@ WEBHOOK_DISPATCH_FAILURES = Counter(
     "Updates dropped by bot/api/webhook.py's own guard, after aiogram's error boundary did not catch them.",
     ["exception"],
 )
+OUTBOUND_WAITS = Counter(f"{PREFIX}_outbound_rate_limit_waits_total", "Outbound calls delayed.", ["scope"])
+OUTBOUND_RETRY_AFTER = Counter(f"{PREFIX}_outbound_retry_after_total", "429s returned by Telegram.")
 
 
 def _event_type(event: TelegramObject) -> str:
