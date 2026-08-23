@@ -1166,6 +1166,69 @@ async def reconcile_star_payments() -> int:
 
 Register the module in `bot/tasks/__init__.py`'s trailing import so TaskIQ discovers it.
 
+- [ ] **Step 1b: Expire premium that has run out**
+
+This step exists because the Task 5 review found that `is_premium` is a boolean nothing ever
+clears: the invoice promises "premium for 30 days" and then grants it forever. The Task 5 fix
+round makes `subscription_expires_at` actually get written; **this is the half that enforces
+it**, and without it that column is decoration.
+
+Add to `bot/database/repositories/payment.py`:
+
+```python
+    async def expire_premium(self) -> int:
+        """Clear `is_premium` for users with no unexpired paid period left.
+
+        One statement rather than a read-then-write loop: this runs on a schedule
+        across several replicas, and a loop would race with itself.
+        """
+        now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+        still_paid = (
+            select(PaymentModel.id)
+            .where(
+                PaymentModel.user_id == UserModel.id,
+                PaymentModel.status == PaymentStatus.PAID,
+                PaymentModel.subscription_expires_at.is_not(None),
+                PaymentModel.subscription_expires_at > now,
+            )
+            .exists()
+        )
+        stmt = (
+            update(UserModel)
+            .where(UserModel.is_premium.is_(True), ~still_paid)
+            .values(is_premium=False)
+            .returning(UserModel.id)
+        )
+        expired = list((await self._session.execute(stmt)).scalars())
+        await self._session.commit()
+        return len(expired)
+```
+
+Note `subscription_expires_at.is_not(None)` is load-bearing: a row with a NULL expiry must not
+count as "still paid", or a single legacy row would keep a user premium forever.
+
+`expire_premium` returns the count, but the **cache must be invalidated for each expired user**
+or `UserService.is_premium()` keeps serving `True` from Redis until its TTL lapses. Have the
+repository method return the list of ids and have the task invalidate them — resolve
+`CacheService` from the same REQUEST container and call `invalidate_user(user_id)` per id.
+Adjust the snippet's return type accordingly and say in your report which shape you chose.
+
+Then add a second scheduled task in `bot/tasks/payments.py`:
+
+```python
+@broker.task(task_name="payments:expire_premium", schedule=[{"cron": "7 * * * *"}])
+async def expire_premium() -> int:
+```
+
+Hourly at minute 7, not on the hour — spreading scheduled work off the top of the hour avoids
+piling every cron job onto the same tick.
+
+**Verify it with a contrast, not a bare assertion.** Create three users: one whose expiry is in
+the past, one whose expiry is in the future, and one whose payment is REFUNDED. Assert
+`is_premium` before the sweep is `True` for all three (the guard), then that the sweep clears
+exactly the first and third and leaves the second alone. A sweep that clears everyone passes a
+one-user test perfectly.
+
 - [ ] **Step 2: Verify it runs and detects a gap**
 
 Write `reconcheck.py`, run it, paste output, delete it. Stub `GetStarTransactions` to return two transactions — one whose `id` you have already recorded via `PaymentRepository.record()`, one you have not — and assert the task returns `1` and logs the unrecorded one.
@@ -1360,6 +1423,8 @@ Add that counter to `bot/middlewares/metrics.py` next to the existing ones, labe
 `GET /api/webapp/me` returns the caller's own profile — resolve `UserService` from dishka and return id, first name, language and premium status. It must return only the *caller's* data; there is no user-id parameter, because a route that accepts one is a route someone will forget to authorise.
 
 `POST /api/webapp/invoice` returns a `createInvoiceLink` URL for the client to open with `tg.openInvoice(...)`. Reuse `PaymentService.subscription_link` from Task 6 rather than duplicating invoice construction.
+
+**`subscription_link`'s title and description are hardcoded English on purpose, and fixing that is this task's job.** aiogram's `gettext` resolves through a ContextVar that only an aiogram middleware sets, so calling `_()` from a FastAPI route raises rather than translating. Wrap the call the same way Task 3 did for default commands — `with i18n.context(), i18n.use_locale(locale):` — resolving the caller's locale from `UserService.language_of(user.id)` and falling back to `DEFAULT_LOCALE`. Then change those two strings in `bot/services/payments.py` to use `_()`. Resolve the `I18n` instance from dishka; it is already an APP-scoped provider.
 
 Both routes depend on `webapp_user`. Mount the router in `bot/entrypoints/api.py` alongside health, metrics and webhook.
 
