@@ -17,24 +17,25 @@ if TYPE_CHECKING:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    if (
-        settings.webhook.enabled
-        and not settings.webhook.secret.get_secret_value()
-        and not settings.webhook.verify_source_ip
-    ):
-        # Fail loud at startup, not silently at request time: the route accepts a
-        # request once EITHER guard clears it — a configured secret (checked via
-        # `if secret and ...`, so an empty one skips that check entirely), or
-        # source-IP verification against Telegram's published ranges. Either guard
-        # alone is enough (an operator may reasonably run with just one), but with
-        # BOTH disabled — no WEBHOOK_SECRET and WEBHOOK_VERIFY_SOURCE_IP=False —
-        # nothing stands between the endpoint and forged updates from anyone. A
-        # warning buried in logs during an incident is easy to miss; a process
-        # that refuses to start is not.
+    if settings.webhook.enabled and not settings.webhook.secret.get_secret_value():
+        # Fail loud at startup, not silently at request time: the route's own
+        # secret check (`if secret and ...`) only rejects requests once a secret
+        # IS configured — an empty secret skips it entirely. WEBHOOK_VERIFY_SOURCE_IP
+        # is NOT accepted as a substitute here: webhook mode requires HTTPS, so
+        # there is always a proxy/TLS terminator in front of this process. With
+        # `trust_proxy_headers=False`, `request.client.host` is that proxy's own
+        # address — never one of Telegram's — so the check would reject 100% of
+        # genuine traffic, not guard anything. With `trust_proxy_headers=True`,
+        # the check is only as trustworthy as that proxy stripping a
+        # client-supplied `X-Forwarded-For`, which is infrastructure this process
+        # cannot verify. The secret token is free, always available, and is
+        # Telegram's own recommended mechanism — an empty WEBHOOK_SECRET means
+        # anyone can forge updates as any Telegram user. A warning buried in logs
+        # during an incident is easy to miss; a process that refuses to start is
+        # not.
         msg = (
-            "WEBHOOK_SECRET must be set or WEBHOOK_VERIFY_SOURCE_IP must be True when "
-            "USE_WEBHOOK=True — with neither, the webhook endpoint would accept forged "
-            "updates from anyone"
+            "WEBHOOK_SECRET must be set when USE_WEBHOOK=True — the webhook endpoint "
+            "would otherwise accept forged updates from anyone"
         )
         raise RuntimeError(msg)
     app.state.settings = settings
