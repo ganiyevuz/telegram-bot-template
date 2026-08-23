@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from loguru import logger
 
 from bot.core.logging import correlation_id
+from bot.middlewares.metrics import WEBHOOK_DISPATCH_FAILURES
 
 if TYPE_CHECKING:
     from bot.core.config import Settings
@@ -73,21 +74,36 @@ async def webhook(
     try:
         await ctx.dp.feed_update(ctx.bot, update)
     except Exception as exc:  # noqa: BLE001 - last-resort guard around the whole dispatch chain
-        # Handler exceptions never reach here — aiogram's own error boundary inside
-        # `Router.propagate_event` catches those and routes them to
-        # bot/handlers/errors.py, which always returns True. What DOES reach here
-        # is a failure in an outer middleware itself: aiogram's FSMContextMiddleware
-        # queries Redis before any middleware registered in bot/middlewares/__init__.py
-        # runs, so a Redis outage raises here reliably, uncaught by anything upstream.
-        # Left alone this becomes an HTTP 500, and Telegram retries a 500 — turning a
-        # dependency outage into a retry storm layered on top of it. We return 200
-        # instead: the same fail-open call DedupMiddleware and ThrottlingMiddleware
-        # make for the identical Redis-down case (see their docstrings). The update is
-        # lost, which is the lesser evil. A bot that cannot tolerate losing an update
-        # should return 503 here instead, to make Telegram retry once the dependency
-        # recovers — at the cost of a retry storm during the outage.
+        # In practice this rarely fires: aiogram registers its own `ErrorsMiddleware`
+        # as the OUTERMOST outer middleware on `dp.update` (`Dispatcher.__init__`,
+        # before `UserContextMiddleware`/`FSMContextMiddleware`/anything registered in
+        # bot/middlewares/__init__.py), and it wraps the entire chain in try/except —
+        # including a Redis outage inside `FSMContextMiddleware`. It routes any
+        # exception to bot/handlers/errors.py's `on_error`, which always returns
+        # `True`, so `ErrorsMiddleware` treats it as handled and does not re-raise.
+        # Verified: with Redis stopped, `feed_update` returns normally (no exception
+        # here) and `tgbot_handler_errors_total{exception="ConnectionError"}` is the
+        # counter that actually observes it — not this block.
+        #
+        # This except block is a backstop for whatever DOES escape that boundary —
+        # e.g. a bug inside `on_error` itself, or `router.propagate_event` returning
+        # UNHANDLED if the global error handler is ever removed or changed. Left
+        # alone, escaping here becomes an HTTP 500, and Telegram retries a 500 —
+        # turning a dependency outage into a retry storm layered on top of it. We
+        # return 200 instead: the same fail-open call DedupMiddleware and
+        # ThrottlingMiddleware make for the identical Redis-down case (see their
+        # docstrings). The update is lost, which is the lesser evil. A bot that
+        # cannot tolerate losing an update should return 503 here instead, to make
+        # Telegram retry once the dependency recovers — at the cost of a retry storm
+        # during the outage.
+        #
+        # Counted separately from HANDLER_ERRORS (see bot/middlewares/metrics.py) so
+        # a failure THIS block catches is distinguishable from one on_error already
+        # handled — labeled by exception type only, never the message, which would
+        # be unbounded cardinality.
         cid = correlation_id.get() or str(update.update_id)
         logger.opt(exception=exc).error(f"webhook feed_update failed | cid: {cid}")
+        WEBHOOK_DISPATCH_FAILURES.labels(exception=type(exc).__name__).inc()
         return {"ok": False}
 
     return {"ok": True}

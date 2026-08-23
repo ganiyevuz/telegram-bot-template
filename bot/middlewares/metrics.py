@@ -18,6 +18,21 @@ UPDATE_DURATION = Histogram(f"{PREFIX}_update_duration_seconds", "Update process
 THROTTLED = Counter(f"{PREFIX}_throttled_total", "Updates dropped by throttling.", ["scope"])
 DEDUP_HITS = Counter(f"{PREFIX}_dedup_hits_total", "Updates dropped as duplicates.")
 HANDLER_ERRORS = Counter(f"{PREFIX}_handler_errors_total", "Unhandled handler exceptions.", ["exception"])
+# Deliberately separate from HANDLER_ERRORS, which — despite its name — is also
+# where a dispatch-chain failure (e.g. FSMContextMiddleware hitting Redis) actually
+# gets counted today: aiogram's own `ErrorsMiddleware` wraps the ENTIRE outer-
+# middleware chain and routes any exception through bot/handlers/errors.py's
+# `on_error`, which always returns `True` and is what increments HANDLER_ERRORS —
+# so in the common case that exception never reaches bot/api/webhook.py's except
+# block at all. This counter is the backstop for the exceptions that DO reach that
+# block regardless (see its comment for exactly when that is) — conflating the two
+# would hide which boundary actually caught a given failure, and HANDLER_ERRORS
+# already carries the everyday Redis-outage signal.
+WEBHOOK_DISPATCH_FAILURES = Counter(
+    f"{PREFIX}_webhook_dispatch_failures_total",
+    "Updates dropped by bot/api/webhook.py's own guard, after aiogram's error boundary did not catch them.",
+    ["exception"],
+)
 
 
 def _event_type(event: TelegramObject) -> str:
