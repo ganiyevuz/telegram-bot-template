@@ -2,16 +2,23 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+from dishka.integrations.fastapi import ContainerMiddleware
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from bot.api import health, metrics, webhook
-from bot.core.config import get_settings
+from bot.core.config import BOT_DIR, get_settings
 from bot.core.lifespan import lifespan as app_lifespan
 from bot.keyboards.default_commands import set_default_commands
+from bot.webapp import routes as webapp_routes
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+# Task 10 replaces the placeholder page; the mount only needs the directory to exist.
+WEBAPP_STATIC_DIR = f"{BOT_DIR}/webapp/static"
 
 
 @asynccontextmanager
@@ -41,6 +48,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.settings = settings
     async with app_lifespan(settings) as ctx:
         app.state.ctx = ctx
+        # The other half of the dishka wiring `create_app()` started — see the comment
+        # there for why `setup_dishka(container, app)` cannot be called as one piece.
+        # `ContainerMiddleware` reads this attribute on every HTTP request to open a
+        # REQUEST-scoped child container, so it must be set before the first request,
+        # and the container only exists from here on.
+        app.state.dishka_container = ctx.container
         # `setup_dishka(..., auto_inject=True)` (bot/core/lifespan.py) defers all
         # `FromDishka[...]` wiring to a `router.startup` hook — see
         # dishka/integrations/aiogram.py's `setup_dishka`/`inject_router`.
@@ -75,11 +88,33 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ctx.dp.emit_shutdown(bot=ctx.bot)
 
 
+async def _webapp_index() -> FileResponse:
+    return FileResponse(f"{WEBAPP_STATIC_DIR}/index.html")
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Telegram Bot", lifespan=_lifespan, docs_url=None, redoc_url=None)
+    # `dishka.integrations.fastapi.setup_dishka(container, app)` is exactly two
+    # statements — this `add_middleware` call plus `app.state.dishka_container = ...` —
+    # and it cannot be used as one piece here: the container does not exist until
+    # `app_lifespan` has started, but Starlette freezes the middleware stack *before*
+    # running the lifespan, so calling it there raises `RuntimeError: Cannot add
+    # middleware after an application has started`. Hence the split: the middleware is
+    # registered at construction time, the container attached in `_lifespan` above.
+    # (The aiogram side is wired separately, in bot/core/lifespan.py.)
+    app.add_middleware(ContainerMiddleware)
     app.include_router(health.router)
     app.include_router(metrics.router)
     app.include_router(webhook.router)
+    app.include_router(webapp_routes.router)
+    # `html=True` makes the mount serve `index.html` for a bare directory request.
+    # The explicit `/webapp` route in front of it is not redundant: Starlette compiles a
+    # mount at `/webapp` to `^/webapp/(?P<path>.*)$`, so the bare path matches nothing and
+    # falls through to `redirect_slashes`, answering the Mini App's own entry URL — the one
+    # configured in BotFather and passed to `WebAppInfo(url=...)` — with a 307 to
+    # `/webapp/` instead of the page.
+    app.add_api_route("/webapp", _webapp_index, methods=["GET"], include_in_schema=False)
+    app.mount("/webapp", StaticFiles(directory=WEBAPP_STATIC_DIR, html=True), name="webapp")
     return app
 
 

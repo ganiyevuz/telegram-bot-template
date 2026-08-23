@@ -153,12 +153,17 @@ class PaymentService:
             )
             raise ValueError(msg)
 
+        # Translatable now that every caller pushes an I18n context first: handlers get
+        # one from `I18nMiddleware`, and the Mini App route wraps this call in
+        # `i18n.context()`/`use_locale()` (bot/webapp/routes.py) precisely because
+        # `gettext` would otherwise raise — it resolves through a ContextVar, not an
+        # argument, so an unwrapped caller gets `LookupError`, not English.
         return await bot.create_invoice_link(
-            title="Premium subscription",
-            description=f"Renews every {self._settings.subscription_period_days} days",
+            title=_("Premium subscription"),
+            description=_("Renews every {days} days").format(days=self._settings.subscription_period_days),
             payload=self.build_payload(user_id),
             currency=self._settings.currency,
-            prices=[LabeledPrice(label="Premium", amount=self._settings.premium_price)],
+            prices=[LabeledPrice(label=_("Premium"), amount=self._settings.premium_price)],
             subscription_period=period,
         )
 

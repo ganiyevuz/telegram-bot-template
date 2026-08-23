@@ -39,6 +39,16 @@ WEBHOOK_DISPATCH_FAILURES = Counter(
 )
 OUTBOUND_WAITS = Counter(f"{PREFIX}_outbound_rate_limit_waits_total", "Outbound calls delayed.", ["scope"])
 OUTBOUND_RETRY_AFTER = Counter(f"{PREFIX}_outbound_retry_after_total", "429s returned by Telegram.")
+# Labelled by a closed set of reasons (`missing`, `invalid`, `expired`) — never the
+# rejected header or any part of it, which is attacker-controlled and would give this
+# counter unbounded cardinality. A spike here is a forgery attempt or a client whose
+# `initData` has gone stale; the two are only distinguishable by the label, since the
+# 401 body deliberately looks identical to the caller.
+WEBAPP_INIT_DATA_REJECTIONS = Counter(
+    f"{PREFIX}_webapp_init_data_rejections_total",
+    "Mini App requests rejected before reaching a route.",
+    ["reason"],
+)
 
 
 def _event_type(event: TelegramObject) -> str:

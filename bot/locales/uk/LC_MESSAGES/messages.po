@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 11:53+0500\n"
+"POT-Creation-Date: 2026-08-23 12:22+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: uk\n"
@@ -77,7 +77,7 @@ msgstr "Premium доступ"
 msgid "Unlock premium features for {days} days"
 msgstr "Відкрийте premium-функції на {days} днів"
 
-#: bot/handlers/payments.py:40
+#: bot/handlers/payments.py:40 bot/services/payments.py:166
 msgid "Premium"
 msgstr "Premium"
 
@@ -129,6 +129,15 @@ msgstr "Непідтримувана валюта."
 #: bot/services/payments.py:85
 msgid "payment error: price changed"
 msgstr "Ціна змінилася, відкрийте бота та спробуйте ще раз."
+
+#: bot/services/payments.py:162
+msgid "Premium subscription"
+msgstr "Premium-передплата"
+
+#: bot/services/payments.py:163
+#, python-brace-format
+msgid "Renews every {days} days"
+msgstr "Поновлюється кожні {days} днів"
 
 #~ msgid ""
 #~ "👋 <b>Добро пожаловать в бот.</b>\n"

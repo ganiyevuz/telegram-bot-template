@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 11:53+0500\n"
+"POT-Creation-Date: 2026-08-23 12:22+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -76,7 +76,7 @@ msgstr "Premium access"
 msgid "Unlock premium features for {days} days"
 msgstr "Unlock premium features for {days} days"
 
-#: bot/handlers/payments.py:40
+#: bot/handlers/payments.py:40 bot/services/payments.py:166
 msgid "Premium"
 msgstr "Premium"
 
@@ -122,7 +122,9 @@ msgstr "Unknown product."
 
 #: bot/services/payments.py:81
 msgid "payment error: invoice belongs to another account"
-msgstr "This invoice was issued to another account. Please reopen the bot and try again."
+msgstr ""
+"This invoice was issued to another account. Please reopen the bot and try"
+" again."
 
 #: bot/services/payments.py:83
 msgid "payment error: unsupported currency"
@@ -131,6 +133,15 @@ msgstr "Unsupported currency."
 #: bot/services/payments.py:85
 msgid "payment error: price changed"
 msgstr "Price has changed, please reopen the bot and try again."
+
+#: bot/services/payments.py:162
+msgid "Premium subscription"
+msgstr "Premium subscription"
+
+#: bot/services/payments.py:163
+#, python-brace-format
+msgid "Renews every {days} days"
+msgstr "Renews every {days} days"
 
 #~ msgid "user counter: <b>{count}</b>"
 #~ msgstr "user counter: <b>{count}</b>"
