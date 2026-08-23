@@ -33,6 +33,16 @@ class ThrottlingMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        # Never throttle a payment notification. Throttling exists to protect the bot from
+        # chat spam, and this is not chat spam: the user cannot send one at will — Telegram
+        # emits it only after taking their money — while dropping it means the Stars are
+        # gone and premium is never granted. The shipped default (RATE_LIMIT=0.5 -> capacity
+        # 2) is emptied by an ordinary /start plus two taps, and `pre_checkout_query` is not
+        # throttled at all, so the charge has already happened by the time this arrives.
+        # `getattr` because the middleware is typed against `TelegramObject`, not `Message`.
+        if getattr(event, "successful_payment", None) is not None:
+            return await handler(event, data)
+
         user = getattr(event, "from_user", None)
         if user is None:
             return await handler(event, data)

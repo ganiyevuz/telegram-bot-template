@@ -81,7 +81,6 @@ class PaymentSettings(BaseSettings):
 
     currency: str = "XTR"
     premium_price: int = 100  # Stars for a 30-day period
-    provider_token: SecretStr | None = Field(default=None, validation_alias="PROVIDER_TOKEN")
     subscription_period_days: int = 30
 
 

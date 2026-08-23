@@ -63,6 +63,10 @@ class UserRepository:
         query = select(UserModel.is_admin).filter_by(id=user_id)
         return bool((await self._session.execute(query)).scalar_one_or_none())
 
+    async def is_premium(self, user_id: int) -> bool:
+        query = select(UserModel.is_premium).filter_by(id=user_id)
+        return bool((await self._session.execute(query)).scalar_one_or_none())
+
     async def set_language(self, user_id: int, language_code: str) -> None:
         await self._update(user_id, language_code=language_code)
 

@@ -24,6 +24,11 @@ async def send_premium_invoice(
     # `query.answer()` directly would trigger a second, blank answer that can clobber
     # this one on the client — see how callbacks.py handles the same constraint.
     # Sending the invoice is itself the user-visible feedback for the tap.
+    # Stars only. Switching PAYMENT_CURRENCY to a fiat currency would need more than a
+    # setting: a `provider_token` from a Telegram-approved payment provider, amounts in
+    # minor units (`premium_price` * 100 for a 2-decimal currency), and the fiat-only
+    # invoice fields (need_email / need_shipping_address / max_tip_amount / ...). None of
+    # that is implemented here, so no half-working knob is exposed for it.
     await bot.send_invoice(
         chat_id=query.from_user.id,
         title=_("Premium access"),
@@ -38,7 +43,12 @@ async def send_premium_invoice(
 
 @router.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery, payments: FromDishka[PaymentService]) -> None:
-    ok, reason = await payments.validate(query.invoice_payload, query.total_amount, query.currency)
+    ok, reason = await payments.validate(
+        query.invoice_payload,
+        query.from_user.id,
+        query.total_amount,
+        query.currency,
+    )
     await query.answer(ok=ok, error_message=reason)
 
 

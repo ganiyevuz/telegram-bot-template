@@ -82,6 +82,15 @@ class UserService:
         await self._users.set_admin(user_id, value=value)
         await self._cache.delete(CacheKeys.user_is_admin(user_id))
 
+    async def is_premium(self, user_id: int) -> bool:
+        key = CacheKeys.user_is_premium(user_id)
+        cached = await self._cache.get(key, bool)
+        if cached is not None:
+            return cached
+        value = await self._users.is_premium(user_id)
+        await self._cache.set(key, value, ttl=USER_TTL)
+        return value
+
     async def set_premium(self, user_id: int, *, value: bool) -> None:
         await self._users.set_premium(user_id, value=value)
         await self._cache.delete(CacheKeys.user_is_premium(user_id))

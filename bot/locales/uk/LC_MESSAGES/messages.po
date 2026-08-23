@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 11:39+0500\n"
+"POT-Creation-Date: 2026-08-23 11:53+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: uk\n"
@@ -68,24 +68,24 @@ msgstr "⚠️ Щось пішло не так. Спробуйте ще раз."
 msgid "export queued"
 msgstr "експорт поставлено в чергу"
 
-#: bot/handlers/payments.py:29
+#: bot/handlers/payments.py:34
 msgid "Premium access"
 msgstr "Premium доступ"
 
-#: bot/handlers/payments.py:30
+#: bot/handlers/payments.py:35
 #, python-brace-format
 msgid "Unlock premium features for {days} days"
 msgstr "Відкрийте premium-функції на {days} днів"
 
-#: bot/handlers/payments.py:35
+#: bot/handlers/payments.py:40
 msgid "Premium"
 msgstr "Premium"
 
-#: bot/handlers/payments.py:59
+#: bot/handlers/payments.py:69
 msgid "subscription renewed, premium is active"
 msgstr "✅ Підписку подовжено, premium активний."
 
-#: bot/handlers/payments.py:61
+#: bot/handlers/payments.py:71
 msgid "payment received, premium is active"
 msgstr "✅ Оплату отримано, premium активовано."
 
@@ -113,6 +113,22 @@ msgstr ""
 #: bot/keyboards/inline/menu.py:13
 msgid "info button"
 msgstr ""
+
+#: bot/services/payments.py:75
+msgid "payment error: unknown product"
+msgstr "Невідомий товар."
+
+#: bot/services/payments.py:81
+msgid "payment error: invoice belongs to another account"
+msgstr "Цей рахунок виставлено іншому акаунту. Відкрийте бота та спробуйте ще раз."
+
+#: bot/services/payments.py:83
+msgid "payment error: unsupported currency"
+msgstr "Непідтримувана валюта."
+
+#: bot/services/payments.py:85
+msgid "payment error: price changed"
+msgstr "Ціна змінилася, відкрийте бота та спробуйте ще раз."
 
 #~ msgid ""
 #~ "👋 <b>Добро пожаловать в бот.</b>\n"
