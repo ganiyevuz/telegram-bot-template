@@ -1,0 +1,177 @@
+# Boots the shipped compose stack. The rest of CI lints the source and builds the image;
+# nothing ever *ran* the result, which is how a Dockerfile that started long polling
+# instead of the API survived nine phases of work unnoticed.
+#
+# Two jobs, because the API cannot start without a real bot token: bot/core/lifespan.py
+# calls `await bot.get_me()` and lets TelegramUnauthorizedError escape, and
+# `set_default_commands()` calls setMyCommands — with a well-formed but fake token the
+# container exits 3 before it serves anything. That strictness is deliberate (a mistyped
+# secret must fail at boot, not silently at request time), so CI works around it rather
+# than removing it:
+#
+#   smoke      | no credentials | image builds, postgres/pgbouncer/redis healthy,
+#              |                | migrator exits 0, worker and scheduler healthy,
+#              |                | scheduled tasks registered AND scheduled
+#   smoke-api  | BOT_TOKEN      | api healthy, /health/live, /health/ready, /metrics,
+#              | secret         | /webapp, /admin
+#
+# So a green `smoke` on its own does NOT prove the application serves anything. See the
+# README section "Continuous integration" for the throwaway-bot setup that turns
+# `smoke-api` on.
+name: Compose smoke test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  smoke:
+    name: Boot the stack (no Telegram credentials required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create a .env for CI
+        run: |
+          cp .env.example .env
+          # GNU sed: `-i` takes no argument. macOS/BSD sed needs `sed -i ''` — the runner
+          # is ubuntu-latest, so the GNU form is the correct one here.
+          #
+          # Well-formed so pydantic-settings validates. The api service is deliberately
+          # NOT started in this job — see the job below — because lifespan calls get_me()
+          # and this token is not real.
+          sed -i 's|^BOT_TOKEN=.*|BOT_TOKEN=110201544:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw|' .env
+          sed -i 's|^USE_WEBHOOK=.*|USE_WEBHOOK=False|' .env
+          # Only the api reads this (its startup refuses an empty key while
+          # ADMIN_ENABLED=True); set here anyway so both jobs use the same .env recipe.
+          sed -i 's|^ADMIN_SECRET_KEY=.*|ADMIN_SECRET_KEY=ci-only-not-a-real-key-0123456789|' .env
+
+      - name: Build the image
+        run: docker compose build
+
+      - name: Start infrastructure, migrator, worker and scheduler
+        run: |
+          docker compose up -d --wait --wait-timeout 300 postgres pgbouncer redis worker scheduler
+
+      - name: Show what came up
+        if: always()
+        run: docker compose ps -a
+
+      - name: Migrations ran to completion
+        run: |
+          test "$(docker compose ps -a --format '{{.Service}} {{.ExitCode}}' | awk '$1=="migrator"{print $2}')" = "0"
+          docker compose logs migrator | tail -5
+
+      - name: Scheduled tasks are registered AND scheduled
+        run: |
+          docker compose exec -T worker python -c "
+          import bot.tasks
+          from bot.tasks import broker
+          names = set(broker.get_all_tasks())
+          need = {'payments:reconcile', 'payments:expire_premium', 'analytics:flush'}
+          missing = need - names
+          assert not missing, f'not registered: {missing}'
+          print('registered OK:', sorted(need))
+          "
+          # Not redundant with the check above: a task can be registered on the broker
+          # while its cron label is never read, in which case get_all_tasks() lists it
+          # and it still never runs. This is the half that proves the scheduler will
+          # actually fire them.
+          docker compose exec -T scheduler python -c "
+          import asyncio, bot.tasks
+          from taskiq.schedule_sources import LabelScheduleSource
+          from bot.tasks import broker
+          async def m():
+              s = LabelScheduleSource(broker); await s.startup()
+              got = {x.task_name for x in await s.get_schedules()}
+              need = {'payments:reconcile', 'payments:expire_premium', 'analytics:flush'}
+              missing = need - got
+              assert not missing, f'registered but never scheduled: {missing}'
+              print('scheduled OK:', sorted(need))
+          asyncio.run(m())
+          "
+
+      - name: What this job does not prove
+        if: success()
+        run: |
+          echo "::notice::The api service was NOT started here — lifespan calls get_me() and this token is fake, so the container would exit 3. /health/live, /health/ready, /metrics, /webapp and /admin are covered only by the smoke-api job, which needs the BOT_TOKEN secret."
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  smoke-api:
+    name: Boot the API (requires BOT_TOKEN secret)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Forks cannot read secrets — by design — so a fork PR would fail this job on a
+    # missing token rather than on anything about the change. Same-repo PRs and pushes
+    # to main can read it; the gate step below still handles "secret never configured".
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Skip without a token
+        id: gate
+        # Read through the environment rather than interpolating `${{ secrets.* }}` into
+        # the script itself.
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::BOT_TOKEN secret is not set — skipping the API smoke test. Nothing in this workflow then proves the API starts at all: the smoke job deliberately does not run it, so /health/live, /health/ready, /metrics, /webapp and /admin go unverified. See README > Continuous integration."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create a .env for CI
+        if: steps.gate.outputs.run == 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          cp .env.example .env
+          sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=${BOT_TOKEN}|" .env
+          # Keep polling mode. With USE_WEBHOOK=True the api's lifespan calls setWebhook
+          # against the real bot behind this token, pointing it at the placeholder
+          # WEBHOOK_BASE_URL — CI must not repoint a live bot's webhook.
+          sed -i 's|^USE_WEBHOOK=.*|USE_WEBHOOK=False|' .env
+          sed -i 's|^ADMIN_SECRET_KEY=.*|ADMIN_SECRET_KEY=ci-only-not-a-real-key-0123456789|' .env
+
+      - name: Build the image
+        if: steps.gate.outputs.run == 'true'
+        run: docker compose build
+
+      - name: Start the whole stack
+        if: steps.gate.outputs.run == 'true'
+        run: docker compose up -d --wait --wait-timeout 300
+
+      - name: Show what came up
+        if: ${{ always() && steps.gate.outputs.run == 'true' }}
+        run: docker compose ps -a
+
+      - name: The API serves
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          curl -fsS localhost:8080/health/live  > /dev/null && echo "live OK"
+          curl -fsS localhost:8080/health/ready > /dev/null && echo "ready OK"
+          curl -fsS localhost:8080/metrics | grep -q '^tgbot_' && echo "tgbot metrics OK"
+          curl -fsS localhost:8080/webapp | grep -q '<' && echo "mini app page OK"
+          curl -fsS -o /dev/null -w "%{http_code}" -L localhost:8080/admin | grep -qE '^(200|302|307)$' && echo "admin OK"
+
+      - name: Dump logs on failure
+        if: ${{ failure() && steps.gate.outputs.run == 'true' }}
+        run: docker compose logs --tail 200
+
+      - name: Tear down
+        if: ${{ always() && steps.gate.outputs.run == 'true' }}
+        run: docker compose down -v

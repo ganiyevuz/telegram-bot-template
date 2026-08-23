@@ -266,6 +266,33 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 -   `prometheus` — time series database for collecting metrics from various systems
 -   `grafana` — visualization and analysis from various sources, including Prometheus
 
+## 🧪 Continuous integration
+
+Besides linting and building the image, CI boots the compose stack on every push and pull
+request to `main` ([`.github/workflows/compose-smoke.yml`](.github/workflows/compose-smoke.yml)).
+It runs as two jobs, because the API cannot start without a real bot token — `lifespan`
+calls `getMe` and lets the failure escape, so with a fake token the container exits before
+serving anything:
+
+| Job | Needs | Proves |
+| --- | --- | --- |
+| `smoke` | nothing | the image builds; `postgres`, `pgbouncer` and `redis` come up healthy; the migrator exits 0; `worker` and `scheduler` come up healthy; the scheduled tasks are registered on the broker **and** picked up by the schedule source |
+| `smoke-api` | a `BOT_TOKEN` repository secret | the `api` service comes up healthy and serves `/health/live`, `/health/ready`, `/metrics`, `/webapp` and `/admin` |
+
+**Without that secret, CI never starts the application.** `smoke` on its own is green while
+nothing has checked that the API serves a single request — it says the workers and the
+database layer are fine, and nothing more. The job prints exactly that as a notice on every
+run, and `smoke-api` prints a notice when it skips.
+
+To turn `smoke-api` on, create a **throwaway** bot with [@BotFather](https://t.me/BotFather)
+and store its token as the `BOT_TOKEN` repository secret (_Settings → Secrets and variables →
+Actions → New repository secret_). It must not be a production bot: CI starts a real bot
+process against it and calls `setMyCommands`, which rewrites that bot's command menu. The job
+keeps `USE_WEBHOOK=False` so it never repoints the bot's webhook.
+
+Secrets are unavailable to workflows triggered from a fork, by design, so `smoke-api` does
+not run on fork pull requests — it is skipped rather than failed.
+
 ## ⭐ Star History
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=donbarbos/telegram-bot-template&type=Date)](https://star-history.dera.page/#donbarbos/telegram-bot-template&Date)
