@@ -45,6 +45,12 @@ compose-exec: ## Exec command in the api container, e.g. make compose-exec args=
 logs: ## Tail logs of one service, e.g. make logs args=api
 	docker compose logs $(args) -f
 
+logs-worker: ## Follow worker logs
+	docker compose logs worker -f
+
+logs-scheduler: ## Follow scheduler logs
+	docker compose logs scheduler -f
+
 # MIGRATIONS
 mm: ## Create new migrations with args name in docker compose
 	docker compose exec api alembic revision --autogenerate -m "$(args)"

@@ -21,6 +21,46 @@ services:
       - pgbouncer
       - redis
 
+  worker:
+    image: bot:latest
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: always
+    command: taskiq worker bot.entrypoints.worker:broker
+    env_file:
+      - .env
+    networks:
+      - app
+    depends_on:
+      - pgbouncer
+      - redis
+    # Safe to scale: `docker compose up -d --scale worker=3`. The broker is a Redis
+    # list, so consumers compete for jobs rather than duplicating them. No
+    # container_name — a fixed name makes the service unscalable.
+
+  scheduler:
+    image: bot:latest
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: always
+    command: taskiq scheduler bot.entrypoints.scheduler:scheduler
+    env_file:
+      - .env
+    networks:
+      - app
+    depends_on:
+      - redis
+    # EXACTLY ONE INSTANCE. Never scale this service. `bot/entrypoints/scheduler.py`
+    # says so in its own docstring: every replica reads the same cron labels and
+    # enqueues its own copy of each job at each tick. `payments:expire_premium` is
+    # idempotent and `payments:reconcile` is read-only, so today the damage is
+    # duplicate work and duplicate alerts — but `broadcast:start` is neither, and a
+    # second scheduler would fan out a broadcast twice.
+    deploy:
+      replicas: 1
+
   postgres:
     image: postgres:14-alpine
     container_name: ${COMPOSE_PROJECT_NAME}-postgres

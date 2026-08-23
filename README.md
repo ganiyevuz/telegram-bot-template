@@ -35,9 +35,37 @@
 
 The compose stack runs the **API** entrypoint (`bot.entrypoints.api`) — the `api` service is
 `uvicorn` serving `/webhook`, the health probes `/health/live` and `/health/ready`, Prometheus
-`/metrics`, the Mini App at `/webapp` + `/api/webapp/*`, and the admin panel at `/admin`. It is
-the deployment path, and the only one that is horizontally scalable. There is no second
-application: the panel is SQLAdmin bound to the same async engine the bot already runs on.
+`/metrics`, the Mini App at `/webapp` + `/api/webapp/*`, and the admin panel at `/admin`. There
+is no second application: the panel is SQLAdmin bound to the same async engine the bot already
+runs on.
+
+Alongside it, two TaskIQ services run the same `bot:latest` image with a different command:
+
+| Service     | Command                                            | Scaling                            |
+| ----------- | -------------------------------------------------- | ---------------------------------- |
+| `api`       | `uvicorn bot.entrypoints.api:app` (the image `CMD`) | scales horizontally                |
+| `worker`    | `taskiq worker bot.entrypoints.worker:broker`       | scales horizontally                |
+| `scheduler` | `taskiq scheduler bot.entrypoints.scheduler:scheduler` | **exactly one instance, always** |
+
+Without `worker` and `scheduler` every background task — `payments:reconcile`,
+`payments:expire_premium`, `analytics:flush`, `broadcast:start`, `broadcast:chunk`,
+`export:users` — is registered on a broker nothing consumes, so premium never expires,
+analytics events pile up in Redis until they are trimmed away, and an admin broadcast enqueues
+work that is never delivered.
+
+`api` and `worker` are safe to scale: the broker is a Redis list, so workers *compete* for jobs
+rather than each running a copy of them.
+
+```bash
+docker compose up -d --scale worker=3
+```
+
+**`scheduler` must run exactly one instance — never scale it.** It is the process that reads the
+`schedule=[{"cron": ...}]` labels off the tasks and enqueues them at each tick, and it holds no
+lock. A second replica reads the same labels and enqueues its own copy of every job, so each
+cron fires twice. `payments:expire_premium` is idempotent and `payments:reconcile` is read-only,
+so today the visible damage would be duplicate work and duplicate alerts — but `broadcast:start`
+is neither, and a second scheduler would fan the same broadcast out to every user twice.
 
 -   configure environment variables in `.env` file
 
@@ -57,6 +85,8 @@ application: the panel is SQLAdmin bound to the same async engine the bot alread
     ```bash
     curl localhost:8080/health/ready   # 200 once Postgres and Redis are reachable
     open  localhost:8080/admin         # the panel; log in with DEFAULT_ADMIN_EMAIL/PASSWORD
+    make logs-scheduler                # should show it sending analytics:flush every minute
+    make logs-worker                   # should show the same task being executed
     ```
 
 ### 💻 Running on Local Machine
