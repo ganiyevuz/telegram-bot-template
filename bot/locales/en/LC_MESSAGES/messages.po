@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-23 11:20+0500\n"
+"POT-Creation-Date: 2026-08-23 11:39+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -17,6 +17,18 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+#: bot/handlers/admin_payments.py:29
+msgid "usage: /refund USER_ID CHARGE_ID"
+msgstr "usage: /refund USER_ID CHARGE_ID"
+
+#: bot/handlers/admin_payments.py:33
+msgid "refunded"
+msgstr "✅ Refunded, premium revoked."
+
+#: bot/handlers/admin_payments.py:33
+msgid "unknown charge id"
+msgstr "⚠️ Unknown charge id."
 
 #: bot/handlers/broadcast.py:28
 msgid "usage: /broadcast <text>"
@@ -68,7 +80,11 @@ msgstr "Unlock premium features for {days} days"
 msgid "Premium"
 msgstr "Premium"
 
-#: bot/handlers/payments.py:53
+#: bot/handlers/payments.py:59
+msgid "subscription renewed, premium is active"
+msgstr "✅ Subscription renewed, premium is active."
+
+#: bot/handlers/payments.py:61
 msgid "payment received, premium is active"
 msgstr "✅ Payment received, premium is active."
 

@@ -2,11 +2,13 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
+from aiogram.types import LabeledPrice
 from loguru import logger
 
 from bot.analytics.types import BaseEvent, EventProperties
 
 if TYPE_CHECKING:
+    from aiogram import Bot
     from aiogram.types import SuccessfulPayment
 
     from bot.analytics.types import AbstractAnalyticsLogger
@@ -15,6 +17,9 @@ if TYPE_CHECKING:
     from bot.services.users import UserService
 
 PREMIUM_PAYLOAD_PREFIX = "premium"
+# Bot API: `subscription_period` "must always be 2592000 (30 days)" — the only value
+# Telegram currently accepts for a recurring Stars subscription.
+STARS_SUBSCRIPTION_PERIOD_SECONDS = 2592000
 
 
 def _naive_utc(unix_time: int | None) -> datetime.datetime | None:
@@ -93,4 +98,47 @@ class PaymentService:
             ),
         )
         logger.info(f"payment recorded | user_id: {user_id} | amount: {payment.total_amount}")
+        return True
+
+    async def subscription_link(self, bot: Bot, user_id: int) -> str:
+        """A recurring Stars subscription link.
+
+        Note `subscription_period` exists on `create_invoice_link` but NOT on
+        `send_invoice` — recurring Stars must go through a link, which the client
+        opens with `tg.openInvoice(...)` or which you send as a URL button.
+        """
+        period = self._settings.subscription_period_days * 86400
+        if period != STARS_SUBSCRIPTION_PERIOD_SECONDS:
+            # Bot API: `subscription_period` "must always be 2592000 (30 days)".
+            # Failing here names the setting; letting it through produces an opaque
+            # "Bad Request: invalid subscription period" from Telegram instead.
+            msg = (
+                f"PAYMENT_SUBSCRIPTION_PERIOD_DAYS must be 30 for Stars subscriptions, "
+                f"got {self._settings.subscription_period_days}"
+            )
+            raise ValueError(msg)
+
+        return await bot.create_invoice_link(
+            title="Premium subscription",
+            description=f"Renews every {self._settings.subscription_period_days} days",
+            payload=self.build_payload(user_id),
+            currency=self._settings.currency,
+            prices=[LabeledPrice(label="Premium", amount=self._settings.premium_price)],
+            subscription_period=period,
+        )
+
+    async def refund(self, bot: Bot, user_id: int, charge_id: str) -> bool:
+        """Refund a Stars payment and revoke premium.
+
+        Returns False when the charge is unknown to us — refunding a charge we
+        never recorded would revoke premium the user paid for elsewhere.
+        """
+        existing = await self._payments.get_by_charge_id(charge_id)
+        if existing is None or existing.user_id != user_id:
+            return False
+
+        await bot.refund_star_payment(user_id=user_id, telegram_payment_charge_id=charge_id)
+        await self._payments.mark_refunded(charge_id)
+        await self._users.set_premium(user_id, value=False)
+        logger.info(f"payment refunded | user_id: {user_id} | charge: {charge_id}")
         return True

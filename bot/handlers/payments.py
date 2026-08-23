@@ -48,6 +48,14 @@ async def payment_succeeded(message: Message, payments: FromDishka[PaymentServic
     # mypy, and `Message.from_user` is `None` for channel posts - guard both explicitly.
     if message.from_user is None or message.successful_payment is None:
         return
-    credited = await payments.record(message.from_user.id, message.successful_payment)
-    if credited:
+    payment = message.successful_payment
+    credited = await payments.record(message.from_user.id, payment)
+    if not credited:
+        return
+    # A renewal arrives as another `successful_payment` (is_recurring=True), but only
+    # the very first one of a subscription is `is_first_recurring` - telling the user
+    # "premium is active" every month as though it were new would be misleading.
+    if payment.is_recurring and not payment.is_first_recurring:
+        await message.answer(_("subscription renewed, premium is active"))
+    else:
         await message.answer(_("payment received, premium is active"))
