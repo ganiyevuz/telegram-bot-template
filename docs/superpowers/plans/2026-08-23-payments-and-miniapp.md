@@ -998,17 +998,30 @@ SuccessfulPayment.is_recurring / .is_first_recurring / .subscription_expiration_
         `send_invoice` — recurring Stars must go through a link, which the client
         opens with `tg.openInvoice(...)` or which you send as a URL button.
         """
+        period = self._settings.subscription_period_days * 86400
+        if period != STARS_SUBSCRIPTION_PERIOD_SECONDS:
+            # Bot API: `subscription_period` "must always be 2592000 (30 days)".
+            # Failing here names the setting; letting it through produces an opaque
+            # "Bad Request: invalid subscription period" from Telegram instead.
+            msg = (
+                f"PAYMENT_SUBSCRIPTION_PERIOD_DAYS must be 30 for Stars subscriptions, "
+                f"got {self._settings.subscription_period_days}"
+            )
+            raise ValueError(msg)
+
         return await bot.create_invoice_link(
             title="Premium subscription",
             description=f"Renews every {self._settings.subscription_period_days} days",
             payload=self.build_payload(user_id),
             currency=self._settings.currency,
             prices=[LabeledPrice(label="Premium", amount=self._settings.premium_price)],
-            subscription_period=self._settings.subscription_period_days * 86400,
+            subscription_period=period,
         )
 ```
 
-Import `Bot` and `LabeledPrice` at module level in that file if they are not already there.
+Import `Bot` and `LabeledPrice` at module level in that file if they are not already there, and add the module constant `STARS_SUBSCRIPTION_PERIOD_SECONDS = 2592000` beside `PREMIUM_PAYLOAD_PREFIX`.
+
+**Do not import `Bot` under `if TYPE_CHECKING:`.** `bot/services/payments.py` currently keeps its type-only imports there and that is fine — dishka builds `PaymentService` through an explicit factory in `bot/core/di.py`, so it never introspects `__init__`. `Bot` here is only a parameter annotation on a plain method, so either placement works at runtime; put it under `TYPE_CHECKING` with the others for consistency, and let ruff decide.
 
 - [ ] **Step 2: Add refund support to `PaymentService`**
 
@@ -1060,7 +1073,10 @@ async def refund_command(
     """/refund <user_id> <charge_id>"""
     parts = (command.args or "").split()
     if len(parts) != 2 or not parts[0].isdigit():
-        await message.answer(_("usage: /refund <user_id> <charge_id>"))
+        # No angle brackets: the bot's default parse mode is HTML (see
+        # bot/telegram/factory.py), so "<user_id>" would be read as an unknown HTML
+        # tag and Telegram would reject the whole message with "can't parse entities".
+        await message.answer(_("usage: /refund USER_ID CHARGE_ID"))
         return
 
     ok = await payments.refund(bot, int(parts[0]), parts[1])
@@ -1071,7 +1087,9 @@ Register the router. Add the three new msgids to all locales and compile.
 
 - [ ] **Step 5: Verify refund and renewal handling**
 
-Write `refundcheck.py`, run it, paste output, delete it. It must cover: a refund of a recorded charge succeeds and clears `is_premium`; a refund of an unknown charge returns False and does **not** clear `is_premium`; a renewal creates a second row without a duplicate error. Stub `RefundStarPayment` in the session fake to return `True`.
+Write `refundcheck.py`, run it, paste output, delete it. It must cover: a refund of a recorded charge succeeds and clears `is_premium`; a refund of an unknown charge returns False and does **not** clear `is_premium`; a refund of a charge belonging to a **different** user returns False (the `existing.user_id != user_id` branch); a renewal creates a second row without a duplicate error; and `/refund` with bad arguments produces a message Telegram actually accepts under HTML parse mode. Stub `RefundStarPayment` in the session fake to return `True`.
+
+Pair every assertion with a guard proving the code under test ran — e.g. assert `is_premium` was `True` *before* the unknown-charge refund, otherwise "still not premium" passes vacuously.
 
 The unknown-charge case is the one that matters — an admin fat-fingering a charge id must not silently revoke a paying user's access.
 
