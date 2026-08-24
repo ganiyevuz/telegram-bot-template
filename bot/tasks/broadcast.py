@@ -8,11 +8,54 @@ from redis.asyncio import Redis
 
 from bot.cache.keys import CacheKeys
 from bot.database.repositories import UserRepository
+from bot.notifier import AlertLevel, NotifierService
 from bot.services.users import UserService
 from bot.tasks import broker, get_container
 
 CHUNK_SIZE = 500
 PROGRESS_TTL = 86_400
+
+
+async def _report_completion(redis: Redis, broadcast_id: str) -> None:
+    """Alert once, when the last chunk of a broadcast has been processed.
+
+    Called from both ends of the fan-out, because either can be the one that finishes
+    last. `queued` is written only after `start_broadcast` has enqueued everything, so a
+    chunk completing mid-fan-out correctly reads the broadcast as unfinished — but a
+    small audience can be delivered in full before that write lands, which is why
+    `start_broadcast` re-checks straight after making it. `hsetnx` is what makes two
+    callers safe: the first to claim the flag alerts, everyone else — a second worker
+    finishing its own chunk at the same instant included — gets 0 and returns.
+
+    Never raises. It runs at the tail of a task whose retry would re-send the entire
+    chunk, so a failed alert must not be what triggers duplicate messages to 500 users.
+    """
+    key = CacheKeys.broadcast(broadcast_id)
+    try:
+        # This client is not in decode_responses mode, so the field names arrive as
+        # bytes; the isinstance guard keeps this correct if that ever changes.
+        raw = await redis.hgetall(key)
+        progress = {(f.decode() if isinstance(f, bytes) else f): int(v) for f, v in raw.items()}
+        total = progress.get("queued")
+        if total is None:
+            return
+        if progress.get("sent", 0) + progress.get("blocked", 0) + progress.get("failed", 0) < total:
+            return
+        if not await redis.hsetnx(key, "alerted", 1):
+            return
+        notifier = await get_container().get(NotifierService)
+        await notifier.send(
+            AlertLevel.INFO,
+            "broadcast complete",
+            f"id: {broadcast_id}\n"
+            f"recipients: {total}\n"
+            f"sent: {progress.get('sent', 0)}\n"
+            f"blocked: {progress.get('blocked', 0)}\n"
+            f"failed: {progress.get('failed', 0)}",
+            "broadcast:complete",
+        )
+    except Exception as exc:  # noqa: BLE001 - alerting must not become a source of errors
+        logger.warning(f"broadcast completion alert failed | id: {broadcast_id} | {type(exc).__name__}: {exc}")
 
 
 @broker.task(task_name="broadcast:start")
@@ -39,7 +82,11 @@ async def start_broadcast(broadcast_id: str, text: str, initiator_id: int) -> in
             await send_chunk.kiq(broadcast_id, batch, text, initiator_id)
             queued += len(batch)
 
+    # Written last, and deliberately so: its presence is what tells a finishing chunk
+    # that no further chunks are coming. See `_report_completion`.
+    await redis.hset(CacheKeys.broadcast(broadcast_id), "queued", queued)
     logger.info(f"broadcast queued | id: {broadcast_id} | recipients: {queued}")
+    await _report_completion(redis, broadcast_id)
     return queued
 
 
@@ -67,3 +114,4 @@ async def send_chunk(broadcast_id: str, user_ids: list[int], text: str, initiato
 
     progress = await redis.hgetall(key)
     logger.info(f"broadcast chunk done | id: {broadcast_id} | progress: {progress}")
+    await _report_completion(redis, broadcast_id)
