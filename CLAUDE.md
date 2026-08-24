@@ -74,7 +74,7 @@ Handler modules each expose `router = Router(name=...)`. Register them in `get_h
 
 ### Services + Redis cache
 
-Business logic lives in `bot/services/`; handlers stay thin. Read functions are decorated with `@cached(key_builder=lambda session, user_id: build_key(user_id))` — the session is deliberately excluded from the cache key, and TTL defaults to 10s (`bot/cache/redis.py`, pickle-serialized). **Any write must invalidate explicitly**: `await clear_cache(user_exists, user_id)` — the key is derived from `func.__module__:func.__name__`, so renaming or moving a cached function silently orphans its keys.
+Business logic lives in `bot/services/`; handlers stay thin. Caching is explicit, not a decorator: services call `CacheService` (`bot/cache/service.py`) with keys minted by `CacheKeys` (`bot/cache/keys.py`), so a key is a named classmethod rather than something derived from a function's module path. Values are **orjson**, never pickle — `pickle.loads` on bytes read back from Redis is remote code execution, and the class docstring says so. **Any write must invalidate explicitly** (`await self._cache.delete(...)` / `invalidate_user(...)`); `UserService` owns that so call sites cannot forget it. `CacheService.delete` fails open on `RedisError` — a failed invalidation degrades to a stale read until the TTL, which beats failing a request whose durable work already committed. `get`/`set` deliberately still raise. One value is **not** cached at all: `UserService.is_premium()` reads through to the database, because a cache-aside read racing a payment pinned a stale `false` for the whole TTL at exactly the moment a user had paid.
 
 ### i18n
 
@@ -129,7 +129,7 @@ The fork carries four deliberate deviations from upstream — keep them when mer
 - The Flask-Admin panel is **gone** — `admin/`, the `admin` compose service and nine dependencies (flask, flask-admin, flask-security-too, flask-caching, flask-babel, flask-sqlalchemy, psycopg2-binary, gunicorn, tablib) were deleted and replaced by `bot/admin/` (SQLAdmin). Upstream still ships it, and its `admin/app.py` still raises `TypeError` at import on flask-admin 2.x; a merge from upstream will try to restore the whole directory. Delete it again rather than porting it.
 - `pyproject.toml` declares `sqlalchemy[asyncio]`. Without the extra, SQLAlchemy only pulls in `greenlet` on the platform machines it enumerates (`aarch64`, `x86_64`, `amd64`, …); **macOS Apple Silicon reports `arm64`**, so a native `uv sync` there omitted it and every async query died with `ValueError: the greenlet library is required`. Docker images were unaffected (Linux reports `aarch64`), which is why upstream never hit it.
 - `uv.lock` pins `aiogram` 3.29.1, not the 3.29.0 upstream locked — that release was yanked from PyPI ("severe slowdown on parsing nested RichBlock entities"). 3.30.0 is also available if you want to move up the line.
-- `bot/middlewares/prometheus.py` has no `# noqa: BLE001` (unused under ruff 0.15, and `fix = true` strips it on every lint run).
+- The Prometheus middleware is `bot/middlewares/metrics.py` (upstream's `prometheus.py` is gone), and it carries no `# noqa: BLE001` — the rule does not fire on it under the pinned ruff, and `fix = true` would strip a redundant suppression on every lint run anyway.
 
 Known upstream quirks, unchanged here:
 
