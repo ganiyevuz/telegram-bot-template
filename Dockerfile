@@ -6,6 +6,13 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /usr/src/app
 
+# `age` is how the backup task encrypts a dump before it leaves the machine
+# (`age -r <X25519 public key>`), and it is a system binary, not a Python dependency.
+# The deployment holds only the public half of the keypair, so nothing in this image can
+# decrypt what it produced. Alpine community ships it; pinned to no version on purpose —
+# the format is stable and `age` is a security-relevant binary worth getting patches for.
+RUN apk add --no-cache age
+
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/uv \

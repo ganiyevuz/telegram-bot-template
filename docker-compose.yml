@@ -55,6 +55,13 @@ services:
       - .env
     networks:
       - app
+    volumes:
+      # READ-ONLY, and the `:ro` is load-bearing. `pgbackup` owns this volume; Backupgram
+      # only reads what is already there and ships it encrypted. A writable mount would let
+      # a bug in this feature corrupt or delete the very backups it exists to protect.
+      # Only `worker` needs it — the scheduled task and the /backup command both run here,
+      # not in `api`.
+      - backups-data:/backups:ro
     depends_on:
       pgbouncer:
         condition: service_healthy

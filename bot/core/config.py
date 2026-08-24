@@ -144,6 +144,27 @@ class NotifierSettings(BaseSettings):
     cooldown_seconds: int = 300
 
 
+class BackupSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="BACKUP_")
+
+    # X25519 recipient the dumps are encrypted to, `age1...`. Deliberately empty by
+    # default and an empty value is a REFUSAL, not a fallback — shipping a keypair with
+    # the template would have every deployment encrypt to the same recipient, which is
+    # the same as not encrypting. The deployment holds only this public half; the
+    # private key never enters it, so the bot cannot read back what it uploaded.
+    age_public_key: str = ""
+    # Telegram chat the encrypted artifacts are shipped to — a private channel the bot
+    # is an admin of. Unset means the feature is off, the same off switch NotifierSettings
+    # uses.
+    chat_id: int | None = None
+    schedule: str = "0 3 * * *"  # daily at 03:00, crontab syntax
+    # Where `pgbackup` leaves its compressed dumps. Backupgram does NOT dump the database:
+    # it mounts that service's volume read-only (see `worker` in docker-compose.yml) and
+    # ships what is already there. Re-dumping would double the load on Postgres for nothing.
+    dir: str = "/backups"
+    keep_days: int = 30
+
+
 class AnalyticsSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV)
 
@@ -173,6 +194,7 @@ class Settings(BaseSettings):
     webapp: WebAppSettings = Field(default_factory=WebAppSettings)
     admin: AdminSettings = Field(default_factory=AdminSettings)
     notifier: NotifierSettings = Field(default_factory=NotifierSettings)
+    backup: BackupSettings = Field(default_factory=BackupSettings)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
