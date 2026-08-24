@@ -214,7 +214,13 @@ services:
 
   pgbackup:
     container_name: ${COMPOSE_PROJECT_NAME}-pgbackup
-    image: prodrigestivill/postgres-backup-local
+    # Pinned to the SAME major version as `postgres:` above, and it has to stay that way.
+    # `:latest` ships pg_dump 18, whose plain-SQL output opens with `SET transaction_timeout
+    # = 0;` and a `\restrict` meta-command — neither of which a 14 server or a 14 psql
+    # understands. The dumps still get written and still get shipped to Telegram; they simply
+    # cannot be restored into the database they came from, which is only discovered during a
+    # restore. Found by following README's restore procedure end to end.
+    image: prodrigestivill/postgres-backup-local:14
     restart: always
     volumes:
       - backups-data:/backups

@@ -20,6 +20,7 @@
 -   [x] Product Analytics System: using [`Amplitude`](https://amplitude.com/) or [`Posthog`](https://posthog.com/) or [`Google Analytics`](https://analytics.google.com)
 -   [x] Performance Monitoring System: using [`Prometheus`](https://prometheus.io/) and [`Grafana`](https://grafana.com/)
 -   [x] Tracking System: using [`Sentry`](https://sentry.io/)
+-   [x] Encrypted database backups shipped to a private Telegram channel using [`age`](https://github.com/FiloSottile/age)
 -   [x] Seamless use of `Docker` and `Docker Compose`
 -   [x] Export all users in `.csv` (from the bot's `/export_users` command or the admin panel)
 -   [x] Configured CI pipeline from git hooks to github actions
@@ -165,6 +166,230 @@ combination: it serves `/webapp` and `/api/webapp/*` either way, and mounts `POS
 when `USE_WEBHOOK=True`. In polling mode that path is a 404 by design — the route has no purpose
 there, and one that does not exist cannot be left unauthenticated by an empty `WEBHOOK_SECRET`.
 
+## 🗄 Encrypted backups to Telegram
+
+Backupgram ships the database dumps that already exist on disk to a private Telegram channel,
+encrypted with [`age`](https://github.com/FiloSottile/age) so that only the holder of the
+private key can read them.
+
+**It does not dump the database.** `pgbackup` (`prodrigestivill/postgres-backup-local`) does
+that every 30 minutes into the `backups-data` volume, and `worker` mounts that volume
+**read-only** at `/backups`. Backupgram takes the newest file it finds there, encrypts it,
+splits it and uploads it — it cannot write, rotate or delete a dump even if it tries.
+
+| Step                         | Who does it                                                            |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| Produce the dumps            | `pgbackup`, on its own `SCHEDULE` (every 30 min), into `backups-data`   |
+| Encrypt, split and upload    | `backup:run` on `BACKUP_SCHEDULE` (`0 3 * * *`), in `worker`            |
+| Delete aged-out messages     | `backup:prune`, daily at 04:23, past `BACKUP_KEEP_DAYS`                 |
+| Restore                      | `scripts/postgres/decrypt`, on **your** machine — never in the deployment |
+
+An admin can also trigger a run from the bot with `/backup`; it enqueues the same task and
+reports the outcome back into that chat.
+
+### Setting it up
+
+-   generate a keypair **off the deployment machine**
+
+    ```bash
+    age-keygen -o backup-key.txt
+    # Public key: age1m23xw7rg3h79mxegz7utngtu2u8m0apdtarek7ptx2algustxd3qphammv
+    chmod 600 backup-key.txt
+    ```
+
+-   put **only the public key** in `.env` on the server, with the channel to ship to
+
+    ```dotenv
+    BACKUP_AGE_PUBLIC_KEY=age1m23xw7rg3h79mxegz7utngtu2u8m0apdtarek7ptx2algustxd3qphammv
+    BACKUP_CHAT_ID=-1001234567890
+    ```
+
+    Make the channel **private**, add the bot as an administrator, and grant it *Delete
+    messages* as well — without that permission the retention sweep can only ever delete
+    messages under 48 hours old, which is Telegram's rule and not something this bot can
+    work around.
+
+-   **escrow the age private key offline before enabling this feature — losing it makes every backup unrecoverable, by design**
+
+    There is no recovery path, no second copy and no override. Put `backup-key.txt` in a
+    password manager, print it into a safe, hand a copy to a second person — but do not leave
+    it only on the laptop that generated it, and do not put it on the server.
+
+-   run a restore drill now, while nothing is on fire (see [Restoring a backup](#restoring-a-backup))
+
+    A backup nobody has ever restored is a hypothesis.
+
+`BACKUP_AGE_PUBLIC_KEY` unset is a **refusal, not a fallback**: the task raises
+`BackupNotConfigured` before it reads a single byte, uploads nothing and raises an alert
+through the notifier. There is no plaintext path and no override — an unencrypted dump of the
+whole database must never be what lands in a chat. `BACKUP_CHAT_ID` unset is the feature's off
+switch and stays silent.
+
+### The bot cannot read back what it uploads
+
+The deployment holds only the public half of the keypair. `age -r <public key>` encrypts;
+decrypting needs the private half, which never enters the server, the image or `.env`. That
+asymmetry is what makes keeping backups in a chat acceptable at all: whoever takes the bot
+token, the container, the `.env` file or the Telegram account itself gets ciphertext and the
+knowledge that backups exist. It applies to everyone else with access to the channel too —
+being added to it is not being able to read it.
+
+The direct cost of that property is the line above: nothing in the system can help you if the
+private key is gone.
+
+### Parts and the manifest
+
+A bot may upload at most **50 MB per document** — the 2 GB figure in Telegram's documentation
+is for a self-hosted Bot API server, which this template does not assume. Ciphertext larger
+than that is cut into **45 MiB** parts, leaving headroom for the multipart framing, filename
+and caption that ride along with the upload:
+
+```
+tgdb-20260824-075537.sql.gz.age.part00    47185920 bytes
+tgdb-20260824-075537.sql.gz.age.part01    47185920 bytes
+tgdb-20260824-075537.sql.gz.age.part02    23457177 bytes
+```
+
+Indices are zero-padded and start at `part00`, so lexical order — what a shell glob, `ls` or a
+Telegram channel export hands you — is numeric order.
+
+Every run posts a manifest message first, then the parts in order:
+
+```
+🗄 Database backup
+source: tgdb-20260824-075537.sql.gz
+parts: 3
+size: 112.4 MiB (117829017 bytes, encrypted)
+sha256: 30aa51b86c0c2fcb24c71890617335674deee23ddd11ab9baa6405d230962fbe
+
+age-encrypted. Download every part into one directory, then:
+./scripts/postgres/decrypt -k backup-key.txt -s 30aa51b86c0c2fcb24c71890617335674deee23ddd11ab9baa6405d230962fbe ./parts/
+```
+
+That `sha256` covers the **whole** encrypted archive, not any single part. It is what proves —
+before anything touches a database — that you downloaded every part and that they reassembled
+into exactly the bytes the worker uploaded. Keep the manifest: without the digest `decrypt`
+refuses to run at all.
+
+### Restoring a backup
+
+The dumps `pgbackup` writes are **plain SQL** (`.sql.gz`) and carry no `DROP` statements, so
+they restore into an *empty* database. `make restore` is not the tool for them: it pipes into
+`pg_restore`, which only reads the custom-format `.dump.gz` that `make backup` writes.
+`scripts/postgres/decrypt` detects which of the two it is holding (the custom format starts
+with the literal `PGDMP`) and runs `psql` or `pg_restore` to match.
+
+`pgbackup` is pinned to the **same major version as `postgres:`** in `docker-compose.yml`, and
+it has to stay that way. `prodrigestivill/postgres-backup-local:latest` ships pg_dump 18,
+whose plain-SQL output opens with `SET transaction_timeout = 0;` — a parameter a Postgres 14
+server does not recognise, so the restore stops on line 13 with every table still missing. The
+dumps get written and shipped exactly the same either way; only the restore fails, and only on
+the day you need it.
+
+On the machine that holds the private key you need `age`, the PostgreSQL client tools and a
+checkout of this repository:
+
+```bash
+brew install age libpq && brew link --force libpq   # macOS (libpq is keg-only, hence the link)
+apk add age postgresql-client                       # Alpine
+apt install age postgresql-client                   # Debian/Ubuntu
+```
+
+-   collect the parts — every part of **one** backup, into an empty directory, and nothing else
+
+    ```bash
+    mkdir -p ./parts
+    # download partNN of that backup from the channel into ./parts/
+    ls ./parts
+    ```
+
+-   lock the key down; `decrypt` warns when anyone but you can read it
+
+    ```bash
+    chmod 600 backup-key.txt
+    ```
+
+-   give libpq the password **before** anything else, because every command below is a libpq
+    client and none of them take one on the command line
+
+    ```bash
+    export PGPASSWORD='<DB_PASS>'   # or put the credentials in ~/.pgpass
+    ```
+
+    Skipping this is not a prompt you can answer later: with no terminal attached — a script,
+    a CI job, `docker exec` without `-t` — `createdb` reprints `Password:` until you kill it.
+
+-   create an **empty** database to restore into — never restore over the live one, which is
+    still the only copy you have if this dump turns out to be older or thinner than you hoped
+
+    ```bash
+    createdb -h <host> -p <port> -U <user> restore_check
+    psql -h <host> -p <port> -U <user> -d restore_check -c 'DROP SCHEMA public CASCADE;'
+    ```
+
+    That second line is not optional. `pgbackup` dumps with `--schema=public`, so the dump
+    **creates** the schema, while `createdb` has already made one — without the drop the
+    restore stops on `ERROR: schema "public" already exists` before a single table is written.
+    On a database you created one command ago there is nothing in that schema to lose.
+
+-   verify, decrypt and restore: the command from the manifest, plus that target
+
+    ```bash
+    ./scripts/postgres/decrypt \
+        -k backup-key.txt \
+        -s <sha256-from-the-manifest> \
+        -H <host> -p <port> -U <user> -d restore_check \
+        ./parts/
+    ```
+
+    It reassembles the parts in numeric order, fails on a gap in the numbering, checks the
+    SHA-256 **before** decrypting and refuses on a mismatch without touching the database, then
+    asks you to type the target database name back before it writes anything. In a script pass
+    `-y`: with no terminal attached and no `-y` it refuses outright rather than restore
+    unattended. `-c` lets `pg_restore` drop existing objects first — custom-format archives
+    only; it does nothing to a plain-SQL dump.
+
+-   check what you got, then swap it in
+
+    ```bash
+    psql -h <host> -p <port> -U <user> -d restore_check -c '\dt'
+    psql -h <host> -p <port> -U <user> -d restore_check -c 'SELECT count(*) FROM users;'
+    ```
+
+To only get the file back, touching no database at all — the restore drill worth running the
+day you enable this — use `-o`:
+
+```bash
+./scripts/postgres/decrypt -k backup-key.txt -s <sha256-from-the-manifest> -o restored.sql.gz ./parts/
+```
+
+#### Restoring on the deployment host
+
+The compose stack publishes **pgbouncer** on `DB_PORT`, not Postgres, and a transaction pooler
+is the wrong thing to push a whole dump through — `createdb` and `dropdb` do not work through
+it at all. Decrypt to a file and restore inside the `postgres` container:
+
+```bash
+./scripts/postgres/decrypt -k backup-key.txt -s <sha256-from-the-manifest> -o restored.sql.gz ./parts/
+# /tmp, not /backups: a .sql.gz under /backups is a dump as far as the next backup run is concerned
+docker compose cp restored.sql.gz postgres:/tmp/restored.sql.gz
+docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" restore_check'
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d restore_check -c "DROP SCHEMA public CASCADE;"'
+docker compose exec postgres sh -c 'gunzip -c /tmp/restored.sql.gz | psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d restore_check'
+```
+
+Decrypting on your own machine and copying `restored.sql.gz` over keeps the private key off
+the server; the plaintext dump is the whole database either way, so delete it when you are
+done.
+
+### Retention
+
+`backup:prune` runs daily at 04:23 and deletes backup messages older than `BACKUP_KEEP_DAYS`
+(30 by default). It only ever deletes **message ids this bot recorded in Redis when it
+uploaded them** — the channel is never scanned, listed or pattern-matched, so anything else
+kept in there is left alone, and a message the bot is not allowed to delete is logged and
+skipped rather than retried forever.
+
 ## 🌍 Environment variables
 
 to launch the bot you only need a token bot, database and redis settings, everything else can be left out
@@ -195,6 +420,11 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 | `REDIS_HOST`             | Hostname or IP address of the Redis database                                                |
 | `REDIS_PORT`             | Port the app dials Redis on — a **container** port; keep `6379` under Docker                |
 | `REDIS_PASS`             | Password for authenticating with the Redis database                                         |
+| `BACKUP_AGE_PUBLIC_KEY`  | age recipient (`age1...`) the dumps are encrypted to; unset and backups **refuse to run**   |
+| `BACKUP_CHAT_ID`         | Private channel the encrypted parts are uploaded to; unset switches backups off             |
+| `BACKUP_SCHEDULE`        | Cron for the upload — 5 space-separated fields; `0 3 * * *` by default                       |
+| `BACKUP_DIR`             | Where `pgbackup`'s dumps are mounted **read-only** in `worker` (`/backups`)                  |
+| `BACKUP_KEEP_DAYS`       | Delete backup messages this bot uploaded once they are older than this (default `30`)       |
 | `SENTRY_DSN`             | Sentry DSN (Data Source Name) for error tracking                                            |
 | `AMPLITUDE_API_KEY`      | API key for Amplitude analytics                                                             |
 | `POSTHOG_API_KEY`        | API key for PostHog analytics                                                               |
@@ -266,6 +496,7 @@ to launch the bot you only need a token bot, database and redis settings, everyt
 -   `postgres` — powerful, open source object-relational database system
 -   `pgbouncer` — connection pooler for PostgreSQL database, in transaction pooling mode
 -   `redis` — in-memory data structure store used as a cache and FSM
+-   `age` — file encryption for the database backups shipped to Telegram
 -   `prometheus` — time series database for collecting metrics from various systems
 -   `grafana` — visualization and analysis from various sources, including Prometheus
 

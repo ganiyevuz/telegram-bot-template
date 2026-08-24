@@ -31,6 +31,12 @@ make babel-extract && make babel-update && make babel-compile
 # Docker (full stack: api, postgres, pgbouncer, redis, migrator, prometheus, grafana)
 make compose-up / compose-down / compose-ps
 make logs args=api
+
+# Backups
+make backup                          # pg_dump into the backups volume, CUSTOM format (.dump.gz)
+make restore args=<file>             # DROPS the db and pg_restores a .dump.gz from that volume
+# what Backupgram shipped to Telegram (run where the age PRIVATE key is, never on the server):
+./scripts/postgres/decrypt -k backup-key.txt -s <sha256-from-the-manifest> -d <db> ./parts/
 ```
 
 There are **no tests and no test runner** in this repo (no pytest dependency, no `tests/`). Do not add or run tests unless asked.
@@ -90,6 +96,19 @@ There are two entrypoints, not one switch. `bot/entrypoints/api.py` is the FastA
 - `migrations/` is excluded from ruff.
 - Alembic manages **every** table, the panel's `admin` / `role` / `roles_admins` included (`migrations/versions/2026-08-23_admin_tables.py`). Those three used to be created outside Alembic by `init_db()` in the deleted `admin/app.py`; that migration refuses to run on a database still carrying them and prints the `DROP TABLE` to run first, because their Flask-Security `pbkdf2_sha512` digests cannot be verified by the new scrypt hashing.
 - The engine (`bot/core/di.py`) passes `connect_args={"statement_cache_size": 0, "prepared_statement_cache_size": 0}`. This exists because traffic goes through **pgbouncer in transaction pooling mode**, where server-side prepared statements cannot be reused across transactions — do not "clean up" either option. The old `CConnection` prepared-statement-name hack and `bot/database/database.py` are gone; they only existed to survive session pooling.
+
+### Backups (Backupgram)
+
+`bot/services/backup.py` prepares, `bot/tasks/backup.py` ships. **Nothing here dumps the database** — `pgbackup` does that every 30 minutes into `backups-data`, and `worker` mounts that volume at `/backups` **read-only**; the `:ro` is load-bearing.
+
+- `prepare()` takes the newest `*.sql.gz` / `*.dump.gz` under `BACKUP_DIR`, skipping symlinks (`<db>-latest.sql.gz` points at a file the walk already found). `daily/`, `weekly/` and `monthly/` are **hardlinks** to the newest file in `last/` — one inode, four names, identical mtime — so "newest by mtime" is a four-way tie, broken towards `last/` by `_DIR_RANK`; a file at the root of `/backups` (a manual `make backup`) outranks all four.
+- `age` is a system binary (`apk add age` in the `Dockerfile`, 1.2.1), not a Python dependency. The deployment holds only the **public** key, so nothing in the image can decrypt what it uploaded. `BACKUP_AGE_PUBLIC_KEY` unset raises `BackupNotConfigured` before a byte is read — there is no plaintext path and no override.
+- Parts are `<source>.age.partNN`, zero-padded from `part00`, cut at 45 MiB for headroom under Telegram's 50 MB per-document bot limit. `_renumber()` widens every index once the count is known, so `part99` and `part100` never coexist at different widths.
+- The manifest's `sha256` covers the **whole** ciphertext, not a part. `scripts/postgres/decrypt` verifies it **before** decrypting and refuses on mismatch without touching the database; the private key is a `-k <file>` path argument, never an env var.
+- `backup:prune` only ever deletes message ids `run_backup` recorded in Redis (`CacheKeys.backup(day)`) — the channel is never scanned, and a message Telegram will not let the bot delete is logged and left for the next sweep.
+- **`pgbackup` must stay pinned to the same major version as `postgres:`.** `prodrigestivill/postgres-backup-local:latest` ships pg_dump 18, whose plain-SQL output opens with `SET transaction_timeout = 0;` — a Postgres 14 server rejects it and the restore dies before the first table. Backups keep being produced and shipped; only the restore breaks.
+- pgbackup writes **plain SQL** (`.sql.gz`); `make backup` writes a **custom-format** archive (`.dump.gz`). `decrypt` sniffs the `PGDMP` magic and picks `psql` or `pg_restore`, but `scripts/postgres/restore` (and so `make restore`) only handles the custom format — do not point it at a Backupgram artifact. `decrypt -c` is likewise `pg_restore`-only and silently does nothing to a plain-SQL dump.
+- Because pgbackup dumps with `--schema=public`, its dump **creates** the schema: restoring into a fresh `createdb` target needs `DROP SCHEMA public CASCADE;` first, or psql stops on `schema "public" already exists`. The README's restore runbook has this; it was found by running that runbook.
 
 ## Conventions
 
