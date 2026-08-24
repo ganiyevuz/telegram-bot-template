@@ -10,7 +10,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from bot.admin import seed_default_admin, setup_admin
-from bot.api import health, metrics, webhook
+from bot.api import health, metrics, notify, webhook
 from bot.core.config import BOT_DIR, get_settings
 from bot.core.lifespan import lifespan as app_lifespan
 from bot.keyboards.default_commands import set_default_commands
@@ -150,6 +150,11 @@ def create_app() -> FastAPI:
         # `webhook.enabled` case, so without this the polling operator gets a live,
         # unauthenticated update sink whenever WEBHOOK_SECRET is empty.
         app.include_router(webhook.router)
+    # Mounted unconditionally, unlike the webhook above: this route authenticates itself
+    # and answers 404 when NOTIFIER_SECRET is unset, so there is no configuration in which
+    # it exists as an unauthenticated sink. Gating the mount instead would make an
+    # operator who sets the secret later have to restart to get the endpoint.
+    app.include_router(notify.router)
     app.include_router(webapp_routes.router)
     # `html=True` makes the mount serve `index.html` for a bare directory request.
     # The explicit `/webapp` route in front of it is not redundant: Starlette compiles a

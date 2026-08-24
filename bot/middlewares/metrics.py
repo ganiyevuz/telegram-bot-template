@@ -49,6 +49,17 @@ WEBAPP_INIT_DATA_REJECTIONS = Counter(
     "Mini App requests rejected before reaching a route.",
     ["reason"],
 )
+# Same closed-label discipline as WEBAPP_INIT_DATA_REJECTIONS above, and for the same
+# reason: `disabled` (no NOTIFIER_SECRET), `stale` (X-Timestamp outside the window),
+# `signature` (HMAC did not verify), `payload` (body did not match the schema). Never the
+# caller-supplied `source` — that is attacker-controlled on a public endpoint and would
+# give this counter unbounded cardinality. Every rejection looks identical to the caller,
+# so this label is the only place the reason is visible.
+NOTIFY_REJECTIONS = Counter(
+    f"{PREFIX}_notify_rejections_total",
+    "Inbound /api/notify requests rejected before an alert was enqueued.",
+    ["reason"],
+)
 
 
 def _event_type(event: TelegramObject) -> str:
