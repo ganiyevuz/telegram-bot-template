@@ -1,7 +1,11 @@
 #!/bin/sh -e
+#
+# Drop the database this container serves and restore it from a gzipped pg_dump
+# archive in ${BACKUP_DIRECTORY}. Run it inside the `postgres` service — pg_restore
+# lives in the database image, not in the Python one (`make restore args=<file>`).
 
 # The directory where backups are stored
-BACKUP_DIRECTORY="/backups"
+BACKUP_DIRECTORY="${BACKUP_DIRECTORY:-/backups}"
 
 # Check if a file name was provided as a parameter
 if [ $# -eq 0 ]; then
@@ -23,16 +27,41 @@ else
   exit 1
 fi
 
-export POSTGRES_USER="${POSTGRES_USER}"
-export POSTGRES_DB="${POSTGRES_DB}"
+# Same guard as `backup`: refuse rather than act on an unintended target.
+: "${POSTGRES_DB:?POSTGRES_DB is not set}"
+: "${POSTGRES_USER:?POSTGRES_USER is not set}"
 
 echo "Dropping the database..."
-dropdb "$POSTGRES_DB" -U "$POSTGRES_USER"
+# `--force` (Postgres 13+) terminates the sessions still holding the database open.
+# Without it this fails outright in any running stack: `api` and `worker` keep pooled
+# connections through pgbouncer, and dropdb refuses while even one is open. Dropping
+# the database already destroys everything in it, so cutting those sessions is implied.
+dropdb --force "$POSTGRES_DB" -U "$POSTGRES_USER"
 
 echo "Creating a new database..."
 createdb "$POSTGRES_DB" --owner="$POSTGRES_USER" -U "$POSTGRES_USER"
 
 echo "Applying the backup to the new database..."
-gunzip -c "${full_file_path}" | pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+# Same pipeline hazard as in `backup`, mirrored: without `pipefail` only pg_restore's
+# status is seen, so a gunzip that fails on a truncated archive would leave a
+# half-restored database reported as a success. See the long comment in `backup`.
+set +e
+if (set -o pipefail) 2>/dev/null; then
+  ( set -o pipefail; gunzip -c "$full_file_path" | pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" )
+  restore_status=$?
+else
+  status_file="${TMPDIR:-/tmp}/gunzip-status.$$"
+  { gunzip -c "$full_file_path"; echo "$?" > "$status_file"; } | pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+  restore_status=$?
+  gunzip_status=$(cat "$status_file" 2>/dev/null || echo 1)
+  rm -f "$status_file"
+  [ "$gunzip_status" -eq 0 ] || restore_status=$gunzip_status
+fi
+set -e
+
+if [ "$restore_status" -ne 0 ]; then
+  echo "Restore FAILED (exit ${restore_status}). The database is in a partial state." >&2
+  exit "$restore_status"
+fi
 
 echo "Backup applied successfully."

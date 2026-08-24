@@ -88,16 +88,21 @@ clean: ## Delete all temporary and generated files
 .PHONY: clean
 
 # BACKUPS
-backup:
-	docker compose exec api scripts/postgres/backup
+# All three run against the `postgres` service. They used to name `api` and `app_db`:
+# `api` is the Python image and has no pg_dump, and `app_db` is not a service in this
+# compose file at all, so none of them had ever worked. docker-compose.yml mounts
+# ./scripts/postgres at /scripts in `postgres` and gives it the same backups-data
+# volume pgbackup writes to, so a manual dump lands beside the scheduled ones.
+backup: ## Dumps the database to the backups volume as backup-<timestamp>.dump.gz
+	docker compose exec postgres /scripts/backup
 .PHONY: backup
 
-mount-docker-backup:
-	docker cp app_db:/backups/$(args) ./$(args)
+mount-docker-backup: ## Copies one backup out of the volume to the working directory: args=<file>
+	docker compose cp postgres:/backups/$(args) ./$(args)
 .PHONY: mount-docker-backup
 
-restore:
-	docker compose exec app_db scripts/postgres/restore $(args)
+restore: ## DROPS the database and restores it from a backup in the volume: args=<file>
+	docker compose exec postgres /scripts/restore $(args)
 .PHONY: restore
 
 # I18N

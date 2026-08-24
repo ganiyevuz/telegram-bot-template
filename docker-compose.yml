@@ -150,6 +150,15 @@ services:
       - app
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # `make backup` / `make restore` exec these scripts in HERE, not in `api`: pg_dump
+      # and pg_restore ship with the database image, and the Python image has neither.
+      # Read-only — the database has no business rewriting the scripts that operate it.
+      - ./scripts/postgres:/scripts:ro
+      # The same volume pgbackup writes its scheduled dumps to, so a manual `make backup`
+      # lands beside them and Backupgram ships it like any other. Writable here by
+      # design: this is the service that produces backups. It stays `:ro` on `worker`,
+      # which only reads them.
+      - backups-data:/backups
     healthcheck:
       # `$$` is required: a single `$` is interpolated by Compose before the container ever
       # sees it, so `-U $DB_USER` would become `-U ` and check the wrong thing silently.
