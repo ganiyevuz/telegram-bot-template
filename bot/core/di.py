@@ -19,6 +19,7 @@ from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import PaymentRepository, UserRepository
 from bot.notifier.service import NotifierService
+from bot.services.backup import BackupService
 from bot.services.payments import PaymentService
 from bot.services.users import UserService
 from bot.telegram.factory import create_bot
@@ -99,6 +100,12 @@ class AppProvider(Provider):
     @provide
     def notifier(self, redis: Redis, settings: Settings) -> NotifierService:
         return NotifierService(redis, settings.notifier)
+
+    # APP scope, not REQUEST: the service is stateless and holds no connection. Every
+    # artifact it produces is returned to the caller, never kept here.
+    @provide
+    def backup(self, settings: Settings) -> BackupService:
+        return BackupService(settings.backup)
 
     @provide
     def throttle_bucket(self, redis: Redis, settings: Settings) -> ThrottleBucket:
