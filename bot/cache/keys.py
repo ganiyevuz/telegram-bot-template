@@ -1,4 +1,8 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datetime import date
 
 NAMESPACE = "tpl"
 VERSION = "v1"
@@ -70,3 +74,24 @@ class CacheKeys:
     def notify_count(cls, fingerprint: str) -> str:
         """How many alerts this fingerprint swallowed during the current cooldown."""
         return cls._key("notify", fingerprint, "count")
+
+    @classmethod
+    def backup(cls, day: date) -> str:
+        """Telegram message ids for the backup shipped on `day`, oldest push first.
+
+        This is the retention sweep's ONLY source of truth about what it may delete. The
+        backup channel is never listed or scanned: anything in there this bot did not
+        record belongs to somebody else.
+        """
+        return cls._key("backup", day.isoformat())
+
+    @classmethod
+    def backup_days(cls) -> str:
+        """Index of the days that still have message ids on record.
+
+        Every `backup()` key carries a TTL, so without an index the only way to find them
+        again would be a SCAN across a keyspace this Redis shares with FSM state, the
+        caches and the throttle buckets. This set is one SMEMBERS instead, and it stays
+        small because the sweep drops a day as soon as that day's messages are gone.
+        """
+        return cls._key("backup", "days")

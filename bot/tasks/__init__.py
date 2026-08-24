@@ -56,4 +56,11 @@ async def _shutdown(state: TaskiqState) -> None:  # noqa: ARG001 - signature fix
         _container = None
 
 
-from bot.tasks import analytics, broadcast, export, notify, payments  # noqa: E402, F401 - registers tasks on the broker
+from bot.tasks import (  # noqa: E402, F401 - registers tasks on the broker
+    analytics,
+    backup,
+    broadcast,
+    export,
+    notify,
+    payments,
+)

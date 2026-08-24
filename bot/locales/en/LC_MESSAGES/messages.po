@@ -18,6 +18,10 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+#: bot/handlers/admin_backup.py:39
+msgid "backup started, you'll get a report in this chat"
+msgstr "🗄 Backup started. You will get a report in this chat when it is done."
+
 #: bot/handlers/admin_payments.py:29
 msgid "usage: /refund USER_ID CHARGE_ID"
 msgstr "usage: /refund USER_ID CHARGE_ID"

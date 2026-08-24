@@ -108,3 +108,11 @@ ignore_missing_imports = true
 # are typed against it, so the panel's views cannot avoid importing it.
 module = "wtforms.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pycron ships no py.typed marker. It is taskiq's own cron parser and a hard dependency of
+# it, and bot/tasks/backup.py validates BACKUP_SCHEDULE with the very parser the scheduler
+# will use - a second, differently-lenient validator would accept expressions taskiq then
+# rejects, which is worse than not validating at all.
+module = "pycron.*"
+ignore_missing_imports = true
