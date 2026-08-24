@@ -18,6 +18,7 @@ from bot.cache.ratelimit import TokenBucket
 from bot.cache.service import CacheService
 from bot.core.config import DEFAULT_LOCALE, I18N_DOMAIN, LOCALES_DIR, Settings
 from bot.database.repositories import PaymentRepository, UserRepository
+from bot.notifier.service import NotifierService
 from bot.services.payments import PaymentService
 from bot.services.users import UserService
 from bot.telegram.factory import create_bot
@@ -94,6 +95,10 @@ class AppProvider(Provider):
     @provide
     def cache(self, redis: Redis) -> CacheService:
         return CacheService(redis)
+
+    @provide
+    def notifier(self, redis: Redis, settings: Settings) -> NotifierService:
+        return NotifierService(redis, settings.notifier)
 
     @provide
     def throttle_bucket(self, redis: Redis, settings: Settings) -> ThrottleBucket:
