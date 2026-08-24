@@ -1,6 +1,7 @@
 from __future__ import annotations
+from typing import Any
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
 from loguru import logger
 
 from bot.analytics.types import AbstractAnalyticsLogger, BaseEvent
@@ -17,12 +18,12 @@ class PosthogTelegramLogger(AbstractAnalyticsLogger):
             "Content-Type": "application/json",
             "Accept": "*/*",
         }
-        self._timeout = 15
+        self._timeout = ClientTimeout(total=15)
 
     async def _send_request(
         self,
         event: BaseEvent,
-    ) -> dict:
+    ) -> dict[str, Any]:
         url = f"{self._base_url}/api/event/?personal_api_key={self._api_token}"
         params = dict(event)
 
@@ -43,7 +44,7 @@ class PosthogTelegramLogger(AbstractAnalyticsLogger):
         return self._validate_response(json_response)
 
     @staticmethod
-    def _validate_response(response: dict) -> dict:
+    def _validate_response(response: dict[str, Any]) -> dict[str, Any]:
         """Validate response."""
         if not response.get("ok"):
             name = response["error"]["name"]

@@ -1,5 +1,8 @@
-include .env
-export
+# `.env` is deliberately NOT included/exported here. `docker compose` reads it itself and
+# parses it properly; make's `include` does not — it keeps the quotes around `DB_USER="tgbot"`
+# (postgres then bootstraps with a literal `""tgbot""` and crash-loops) and keeps the
+# whitespace before a trailing `# comment` (compose then rejects `GRAFANA_PORT=3000   ` as an
+# invalid host port). No target below needs a variable from .env.
 
 LOCALES = bot/locales
 
@@ -11,6 +14,10 @@ help: ## Display this help screen
 deps:	## Install dependencies
 	@uv sync --frozen
 .PHONY: deps
+
+run-polling: ## Run the bot with long polling (development only; no API, no metrics)
+	uv run python -m bot
+.PHONY: run-polling
 
 compose-up: ## Run docker compose
 	docker compose up --build -d
@@ -32,23 +39,29 @@ compose-build: ## docker compose build
 compose-ps: ## docker compose ps
 	docker compose ps
 
-compose-exec: ## Exec command in app container
-	docker compose exec app $(args)
+compose-exec: ## Exec command in the api container, e.g. make compose-exec args="alembic current"
+	docker compose exec api $(args)
 
-logs:
+logs: ## Tail logs of one service, e.g. make logs args=api
 	docker compose logs $(args) -f
+
+logs-worker: ## Follow worker logs
+	docker compose logs worker -f
+
+logs-scheduler: ## Follow scheduler logs
+	docker compose logs scheduler -f
 
 # MIGRATIONS
 mm: ## Create new migrations with args name in docker compose
-	docker compose exec bot alembic revision --autogenerate -m "$(args)"
+	docker compose exec api alembic revision --autogenerate -m "$(args)"
 .PHONY: mm
 
 migrate: ## Upgrade migrations in docker compose
-	docker compose exec bot alembic upgrade head
+	docker compose exec api alembic upgrade head
 .PHONY: migrate
 
 downgrade: ## Downgrade to args name migration in docker compose
-	docker compose exec bot alembic downgrade $(args)
+	docker compose exec api alembic downgrade $(args)
 .PHONY: downgrade
 
 # STYLE
@@ -75,16 +88,21 @@ clean: ## Delete all temporary and generated files
 .PHONY: clean
 
 # BACKUPS
-backup:
-	docker compose exec bot scripts/postgres/backup
+# All three run against the `postgres` service. They used to name `api` and `app_db`:
+# `api` is the Python image and has no pg_dump, and `app_db` is not a service in this
+# compose file at all, so none of them had ever worked. docker-compose.yml mounts
+# ./scripts/postgres at /scripts in `postgres` and gives it the same backups-data
+# volume pgbackup writes to, so a manual dump lands beside the scheduled ones.
+backup: ## Dumps the database to the backups volume as backup-<timestamp>.dump.gz
+	docker compose exec postgres /scripts/backup
 .PHONY: backup
 
-mount-docker-backup:
-	docker cp app_db:/backups/$(args) ./$(args)
+mount-docker-backup: ## Copies one backup out of the volume to the working directory: args=<file>
+	docker compose cp postgres:/backups/$(args) ./$(args)
 .PHONY: mount-docker-backup
 
-restore:
-	docker compose exec app_db scripts/postgres/restore $(args)
+restore: ## DROPS the database and restores it from a backup in the volume: args=<file>
+	docker compose exec postgres /scripts/restore $(args)
 .PHONY: restore
 
 # I18N

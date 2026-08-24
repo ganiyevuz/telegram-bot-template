@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2024-01-15 12:58+0400\n"
+"POT-Creation-Date: 2026-08-23 12:31+0500\n"
 "PO-Revision-Date: 2024-01-15 12:59+0400\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -17,51 +17,138 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.18.0\n"
 
-#: bot/handlers/export_users.py:29
-msgid "user counter: <b>{count}</b>"
-msgstr "кол-во пользователей: <b>{count}</b>"
+#: bot/handlers/admin_backup.py:39
+msgid "backup started, you'll get a report in this chat"
+msgstr "🗄 Резервное копирование запущено. Отчёт придёт в этот чат."
 
-#: bot/handlers/info.py:11
+#: bot/handlers/admin_payments.py:29
+msgid "usage: /refund USER_ID CHARGE_ID"
+msgstr "использование: /refund USER_ID CHARGE_ID"
+
+#: bot/handlers/admin_payments.py:33
+msgid "refunded"
+msgstr "✅ Возврат выполнен, premium отключен."
+
+#: bot/handlers/admin_payments.py:33
+msgid "unknown charge id"
+msgstr "⚠️ Неизвестный идентификатор платежа."
+
+#: bot/handlers/broadcast.py:28
+msgid "usage: /broadcast <text>"
+msgstr "использование: /broadcast <текст>"
+
+#: bot/handlers/broadcast.py:39 bot/handlers/export_users.py:32
+msgid "could not queue, try again later"
+msgstr "не удалось поставить в очередь, попробуйте позже"
+
+#: bot/handlers/broadcast.py:41
+#, python-brace-format
+msgid "broadcast queued: <code>{id}</code>"
+msgstr "рассылка поставлена в очередь: <code>{id}</code>"
+
+#: bot/handlers/callbacks.py:41 bot/handlers/info.py:11
 msgid "about"
 msgstr "ℹ️ <b>About</b>"
 
-#: bot/handlers/menu.py:13 bot/handlers/start.py:16
-msgid "title main keyboard"
-msgstr "📒 <b>Главное меню</b>."
-
-#: bot/handlers/support.py:13
+#: bot/handlers/callbacks.py:46 bot/handlers/support.py:20
 msgid "support text"
 msgstr "🤝 Поддержка"
 
-#: bot/keyboards/inline/contacts.py:11 bot/keyboards/inline/contacts.py:22
-#: bot/keyboards/inline/menu.py:12
-msgid "support button"
-msgstr "Support"
+#: bot/handlers/callbacks.py:51 bot/handlers/menu.py:17
+msgid "title main keyboard"
+msgstr "📒 <b>Главное меню</b>."
 
-#: bot/keyboards/inline/contacts.py:23
-msgid "back button"
-msgstr "🔙 Вернуться назад"
+#: bot/handlers/callbacks.py:66
+msgid "not available yet"
+msgstr "пока недоступно"
 
-#: bot/keyboards/inline/menu.py:9
-msgid "wallet button"
-msgstr "👛 Мой кошелёк"
+#: bot/handlers/errors.py:41 bot/handlers/errors.py:43
+msgid "something went wrong"
+msgstr "⚠️ Что-то пошло не так. Попробуйте ещё раз."
 
-#: bot/keyboards/inline/menu.py:10
-msgid "premium button"
-msgstr "🆙 Получить PREMIUM"
+#: bot/handlers/export_users.py:34
+msgid "export queued"
+msgstr "экспорт поставлен в очередь"
 
-#: bot/keyboards/inline/menu.py:11
-msgid "info button"
-msgstr "Info"
+#: bot/handlers/payments.py:34
+msgid "Premium access"
+msgstr "Premium доступ"
 
-#: bot/middlewares/auth.py:41
+#: bot/handlers/payments.py:35
+#, python-brace-format
+msgid "Unlock premium features for {days} days"
+msgstr "Откройте premium-функции на {days} дней"
+
+#: bot/handlers/payments.py:40 bot/services/payments.py:166
+msgid "Premium"
+msgstr "Premium"
+
+#: bot/handlers/payments.py:69
+msgid "subscription renewed, premium is active"
+msgstr "✅ Подписка продлена, premium активен."
+
+#: bot/handlers/payments.py:71
+msgid "payment received, premium is active"
+msgstr "✅ Оплата получена, premium активирован."
+
+#: bot/handlers/start.py:18
 msgid "first message"
 msgstr ""
 "👋 <b>Добро пожаловать в бот.</b>\n"
 "\n"
 "Чтобы начать пользоваться ботом можете начать с /menu"
+
+#: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
+#: bot/keyboards/inline/menu.py:23
+msgid "support button"
+msgstr "Support"
+
+#: bot/keyboards/inline/contacts.py:25
+msgid "back button"
+msgstr "🔙 Вернуться назад"
+
+#: bot/keyboards/inline/menu.py:20
+msgid "wallet button"
+msgstr "👛 Мой кошелёк"
+
+#: bot/keyboards/inline/menu.py:21
+msgid "premium button"
+msgstr "🆙 Получить PREMIUM"
+
+#: bot/keyboards/inline/menu.py:22
+msgid "info button"
+msgstr "Info"
+
+#: bot/keyboards/inline/menu.py:28
+msgid "mini app button"
+msgstr "🚀 Открыть Mini App"
+
+#: bot/services/payments.py:75
+msgid "payment error: unknown product"
+msgstr "Неизвестный товар."
+
+#: bot/services/payments.py:81
+msgid "payment error: invoice belongs to another account"
+msgstr "Этот счёт выставлен другому аккаунту. Откройте бота и попробуйте снова."
+
+#: bot/services/payments.py:83
+msgid "payment error: unsupported currency"
+msgstr "Неподдерживаемая валюта."
+
+#: bot/services/payments.py:85
+msgid "payment error: price changed"
+msgstr "Цена изменилась, откройте бота и попробуйте снова."
+
+#: bot/services/payments.py:162
+msgid "Premium subscription"
+msgstr "Premium-подписка"
+
+#: bot/services/payments.py:163
+#, python-brace-format
+msgid "Renews every {days} days"
+msgstr "Продлевается каждые {days} дней"
 
 #~ msgid ""
 #~ "👋 <b>Добро пожаловать в бот.</b>\n"
@@ -73,3 +160,22 @@ msgstr ""
 #~ "<i>Это сообщение появляется только один раз</i>\n"
 #~ "\n"
 #~ "Чтобы начать пользоваться ботом можете начать с /menu"
+
+#~ msgid "user counter: <b>{count}</b>"
+#~ msgstr "кол-во пользователей: <b>{count}</b>"
+
+#~ msgid "help"
+#~ msgstr "помощь"
+
+#~ msgid "developer contact details"
+#~ msgstr "контакты разработчика"
+
+#~ msgid "main menu"
+#~ msgstr "главное меню"
+
+#~ msgid "your settings"
+#~ msgstr "ваши настройки"
+
+#~ msgid "support contacts"
+#~ msgstr "контакты поддержки"
+

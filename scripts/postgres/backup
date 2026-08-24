@@ -1,11 +1,23 @@
 #!/bin/sh -e
+#
+# Dump the database this container serves into ${BACKUP_DIRECTORY} as a gzipped
+# pg_dump custom-format archive. Run it inside the `postgres` service — pg_dump lives
+# in the database image, not in the Python one (`make backup`).
 
 # The directory where backups are stored
-BACKUP_DIRECTORY="/backups"
+BACKUP_DIRECTORY="${BACKUP_DIRECTORY:-/backups}"
+
+# Fail loudly on an unset connection target instead of dumping something unintended.
+# This script used to hardcode the database name `app`, which no deployment of this
+# compose file provisions — it creates ${DB_NAME}, exported into this container as
+# POSTGRES_DB. So every `make backup` against a real deployment failed.
+: "${POSTGRES_DB:?POSTGRES_DB is not set}"
+: "${POSTGRES_USER:?POSTGRES_USER is not set}"
 
 echo "Backup process started."
-
-export POSTGRES_USER="${POSTGRES_USER}"
+echo "  database:  ${POSTGRES_DB}"
+echo "  user:      ${POSTGRES_USER}"
+echo "  directory: ${BACKUP_DIRECTORY}"
 
 # Save the current date in YYYY-MM-DD format to a variable
 current_datetime=$(date +%Y-%m-%d-%H%M%S)
@@ -13,8 +25,43 @@ current_datetime=$(date +%Y-%m-%d-%H%M%S)
 # Full path to the file
 backup_filename="${BACKUP_DIRECTORY}/backup-${current_datetime}.dump.gz"
 
-# Run pg_dump and compress its output, then save to /backups with the current date in the filename
-pg_dump -Fc app -U "$POSTGRES_USER" | gzip > "$backup_filename"
+# `set -e` alone does NOT catch a failing pg_dump here. In a pipeline only the *last*
+# command's status is visible without `pipefail`, so a dump that dies halfway (disk
+# full, connection dropped, permission denied) still lets gzip exit 0 — the script
+# reports success and leaves a truncated .gz that looks like a backup and cannot be
+# restored. That is worse than no backup at all, because it is only discovered during
+# a restore.
+#
+# `pipefail` is not in POSIX. Alpine's BusyBox ash (this image) and bash both have it,
+# dash does not, so support is probed rather than assumed. PIPESTATUS is not used: it
+# is a bash/BusyBox-ash extension with exactly the same portability hole, so it would
+# need this fallback anyway. The fallback smuggles pg_dump's own status out of the
+# pipeline through a file, which is portable to any POSIX shell.
+status_file="${TMPDIR:-/tmp}/pg_dump-status.$$"
+# Signals listed as well as EXIT: an untrapped signal kills the shell without running an
+# EXIT trap. See the same trap in `decrypt`, where what gets left behind is worse.
+trap 'rm -f "$status_file"' EXIT HUP INT QUIT PIPE TERM
 
+set +e
+if (set -o pipefail) 2>/dev/null; then
+  ( set -o pipefail; pg_dump -Fc "$POSTGRES_DB" -U "$POSTGRES_USER" | gzip > "$backup_filename" )
+  pipeline_status=$?
+  dump_status=$pipeline_status
+else
+  { pg_dump -Fc "$POSTGRES_DB" -U "$POSTGRES_USER"; echo "$?" > "$status_file"; } | gzip > "$backup_filename"
+  pipeline_status=$?
+  dump_status=$(cat "$status_file" 2>/dev/null || echo 1)
+fi
+set -e
+
+if [ "$pipeline_status" -ne 0 ] || [ "$dump_status" -ne 0 ]; then
+  rm -f "$backup_filename"
+  echo "pg_dump failed (pg_dump exit ${dump_status}, pipeline exit ${pipeline_status})." >&2
+  echo "Removed the truncated ${backup_filename} — a half-written archive must not look like a backup." >&2
+  exit 1
+fi
+
+# Cheap proof that the gzip stream is complete rather than cut short.
+gzip -t "$backup_filename"
 
 echo "Backup has been created and saved to ${backup_filename}"

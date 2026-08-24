@@ -1,38 +1,139 @@
 services:
-  bot:
+  api:
     build:
       context: .
       dockerfile: ./Dockerfile
     image: bot:latest
-    container_name: ${COMPOSE_PROJECT_NAME}-bot
+    container_name: ${COMPOSE_PROJECT_NAME}-api
     restart: always
     env_file:
       - .env
+    # Host port is configurable; the container port is always 8080 so Prometheus and
+    # the healthchecks below can address it without reading .env. This one port now
+    # serves the admin panel too, at ${WEBHOOK_PORT}/admin — there is no separate admin
+    # service and no ${ADMIN_PORT} any more.
     ports:
-      - ${WEBHOOK_PORT}:${WEBHOOK_PORT}
+      - ${WEBHOOK_PORT}:8080
     networks:
       - app
       - monitoring
     depends_on:
-      - pgbouncer
-      - redis
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Migrations run to completion before the application that reads the schema starts.
+      # `restart: "on-failure"` on the migrator is compatible with this condition: it
+      # retries until it exits 0, and only then is this gate released.
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      # /health/live only — "is this process up", which is what a container healthcheck is
+      # for. /health/ready checks Postgres and Redis, so using it here would take the
+      # container unhealthy during a database blip and make Docker restart a process that
+      # is fine. The image is Alpine-based: it has busybox `wget`, not `curl`.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health/live >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Docker's default is 10s. uvicorn stops accepting connections on SIGTERM and waits
+    # for in-flight requests to finish; the worker finishes the task it is executing. A
+    # SIGKILL midway through `PaymentService.record` would abort the transaction —
+    # recoverable, since the payment insert only flushes and the credit commits them
+    # together — but a SIGKILL between `refund_star_payment` and the local write is not.
+    stop_grace_period: 30s
 
-  admin:
+  worker:
+    image: bot:latest
     build:
       context: .
-      dockerfile: ./admin/Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME}-admin
+      dockerfile: ./Dockerfile
     restart: always
+    command: taskiq worker bot.entrypoints.worker:broker
     env_file:
       - .env
-    ports:
-      - ${ADMIN_PORT}:${ADMIN_PORT}
+    networks:
+      - app
+    volumes:
+      # READ-ONLY, and the `:ro` is load-bearing. `pgbackup` owns this volume; Backupgram
+      # only reads what is already there and ships it encrypted. A writable mount would let
+      # a bug in this feature corrupt or delete the very backups it exists to protect.
+      # Only `worker` needs it — the scheduled task and the /backup command both run here,
+      # not in `api`.
+      - backups-data:/backups:ro
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      # There is no HTTP surface here. Assert the two things a worker actually needs: that
+      # the app imports, and that the Redis the broker consumes from answers — reached
+      # through the app's own settings, so a misconfigured REDIS_* shows up as unhealthy.
+      # Deliberately NOT `broker.<something>.ping()`: `ListQueueBroker` exposes no public
+      # client attribute, so reaching into its internals would make this healthcheck a
+      # hostage to a taskiq-redis refactor.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import asyncio;from redis.asyncio import Redis;from bot.core.config import get_settings;
+          asyncio.run(Redis.from_url(get_settings().redis.url).ping())" || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Same 30s as `api`, for the same reason — see the comment there.
+    stop_grace_period: 30s
+    # Safe to scale: `docker compose up -d --scale worker=3`. The broker is a Redis
+    # list, so consumers compete for jobs rather than duplicating them. No
+    # container_name — a fixed name makes the service unscalable.
+
+  scheduler:
+    image: bot:latest
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: always
+    command: taskiq scheduler bot.entrypoints.scheduler:scheduler
+    env_file:
+      - .env
     networks:
       - app
     depends_on:
-      - bot
-    volumes:
-      - ./admin:/usr/src/app/admin
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Same check as `worker` — the scheduler's only dependency is the Redis it enqueues
+      # into, and the app has to import for it to have any cron labels to read at all.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import asyncio;from redis.asyncio import Redis;from bot.core.config import get_settings;
+          asyncio.run(Redis.from_url(get_settings().redis.url).ping())" || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Same 30s as `api`, for the same reason — see the comment there.
+    stop_grace_period: 30s
+    # SIGINT, not Docker's default SIGTERM. `taskiq/cli/worker/run.py` installs handlers for
+    # both, but the *scheduler* CLI installs none: it only unwinds through the
+    # `except asyncio.CancelledError` in `taskiq/cli/scheduler/run.py`, which is what a
+    # KeyboardInterrupt gets it. On SIGTERM it ignores the signal, sits out the whole
+    # `stop_grace_period` and is SIGKILLed (exit 137) with the current tick still in flight;
+    # on SIGINT it logs "Scheduler shut down. Good bye!" and exits 0 in under a second.
+    stop_signal: SIGINT
+    # EXACTLY ONE INSTANCE. Never scale this service. `bot/entrypoints/scheduler.py`
+    # says so in its own docstring: every replica reads the same cron labels and
+    # enqueues its own copy of each job at each tick. `payments:expire_premium` is
+    # idempotent and `payments:reconcile` is read-only, so today the damage is
+    # duplicate work and duplicate alerts — but `broadcast:start` is neither, and a
+    # second scheduler would fan out a broadcast twice.
+    deploy:
+      replicas: 1
 
   postgres:
     image: postgres:14-alpine
@@ -49,6 +150,23 @@ services:
       - app
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # `make backup` / `make restore` exec these scripts in HERE, not in `api`: pg_dump
+      # and pg_restore ship with the database image, and the Python image has neither.
+      # Read-only — the database has no business rewriting the scripts that operate it.
+      - ./scripts/postgres:/scripts:ro
+      # The same volume pgbackup writes its scheduled dumps to, so a manual `make backup`
+      # lands beside them and Backupgram ships it like any other. Writable here by
+      # design: this is the service that produces backups. It stays `:ro` on `worker`,
+      # which only reads them.
+      - backups-data:/backups
+    healthcheck:
+      # `$$` is required: a single `$` is interpolated by Compose before the container ever
+      # sees it, so `-U $DB_USER` would become `-U ` and check the wrong thing silently.
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   pgbouncer:
     image: edoburu/pgbouncer
@@ -60,29 +178,60 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASS}
       - DB_HOST=postgres
-      - POOL_MODE=session
-      - MAX_DB_CONNECTIONS=0
-      - DEFAULT_POOL_SIZE=40
+      # Transaction pooling: a server connection is held only for the duration of a
+      # transaction, so N app replicas no longer mean N Postgres backends. The
+      # SQLAlchemy engine is already configured for this (statement_cache_size=0 and
+      # prepared_statement_cache_size=0 in bot/core/di.py) — server-side prepared
+      # statements cannot be reused across transactions in this mode.
+      - POOL_MODE=transaction
+      # A real ceiling, not 0 (unlimited). This is the number the whole point of
+      # pgbouncer rests on: it must stay below Postgres's own max_connections (100 by
+      # default) with headroom for the migrator and any psql sessions.
+      - MAX_DB_CONNECTIONS=50
+      - DEFAULT_POOL_SIZE=20
       - ADMIN_USERS=postgres,${DB_USER}
       - AUTH_TYPE=scram-sha-256
+    # pgbouncer listens on 5432 inside the container whatever DB_PORT says; DB_PORT is
+    # simultaneously the port the app dials at `pgbouncer:5432`, so only the host side
+    # of this mapping is free to change.
     ports:
-      - ${DB_PORT}:${DB_PORT}
+      - ${DB_PORT}:5432
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - app
+    healthcheck:
+      # Against the pooler itself on its own listen port, not against Postgres: this has to
+      # answer "can a client get a connection through pgbouncer", which is what every
+      # service downstream of it actually needs.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U $${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 
   pgbackup:
     container_name: ${COMPOSE_PROJECT_NAME}-pgbackup
-    image: prodrigestivill/postgres-backup-local
+    # Pinned to the SAME major version as `postgres:` above, and it has to stay that way.
+    # `:latest` ships pg_dump 18, whose plain-SQL output opens with `SET transaction_timeout
+    # = 0;` and a `\restrict` meta-command — neither of which a 14 server or a 14 psql
+    # understands. The dumps still get written and still get shipped to Telegram; they simply
+    # cannot be restored into the database they came from, which is only discovered during a
+    # restore. Found by following README's restore procedure end to end.
+    image: prodrigestivill/postgres-backup-local:14
     restart: always
     volumes:
       - backups-data:/backups
     networks:
       - app
+    # Same reason as the migrator: a backup job that starts before the database accepts
+    # connections just fails its first run. (This image ships its own HEALTHCHECK, so it
+    # needs none here.)
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${DB_NAME}
@@ -102,13 +251,27 @@ services:
     restart: always
     env_file:
       - .env
+    # Same as pgbouncer: redis-server listens on 6379 in the container, and REDIS_PORT is
+    # what the app dials at `redis:6379`. Only the host side is free to change.
     ports:
-      - ${REDIS_PORT}:${REDIS_PORT}
+      - ${REDIS_PORT}:6379
     networks:
       - app
     volumes:
       - redis-data:/bitnami/redis/data
     command: /bin/sh -c 'if [ -n "$REDIS_PASS" ]; then redis-server --requirepass "$REDIS_PASS"; else redis-server; fi'
+    healthcheck:
+      # Mirrors the `command:` above, and for the same reason: with REDIS_PASS set, a bare
+      # `redis-cli ping` answers `NOAUTH Authentication required`, the grep fails, and redis
+      # never turns healthy — which would leave every service gated on it stuck forever.
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -n "$$REDIS_PASS" ]; then redis-cli --no-auth-warning -a "$$REDIS_PASS" ping;
+          else redis-cli ping; fi | grep -q PONG
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   migrator:
     image: bot:latest
@@ -119,10 +282,14 @@ services:
       - .env
     networks:
       - app
-    depends_on:
-      - bot
     volumes:
       - ./migrations:/usr/src/app/migrations
+    # Migrations wait for the database, not for the application. (This service used to
+    # declare `depends_on: [bot]` — it waited for the app before migrating, which is
+    # backwards; `api` and `worker` now wait for *it* instead.)
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
 
   # MONITORING
   node-exporter:
@@ -150,9 +317,9 @@ services:
     env_file:
       - .env
     ports:
-      - ${PROMETHEUS_PORT}:${PROMETHEUS_PORT}
+      - ${PROMETHEUS_PORT}:9090
     depends_on:
-      - bot
+      - api
       - node-exporter
     networks:
       - monitoring
@@ -177,7 +344,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_INSTALL_PLUGINS=grafana-clock-panel
     ports:
-      - ${GRAFANA_PORT}:${GRAFANA_PORT}
+      - ${GRAFANA_PORT}:3000
     depends_on:
       - prometheus
     networks:
@@ -185,7 +352,11 @@ services:
     volumes:
       - ./configs/grafana/datasources:/etc/grafana/provisioning/datasources
       - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      # The dashboards provider (configs/grafana/dashboards/local.yml) scans this
+      # directory, but it is inside the grafana-data volume — so every dashboard JSON
+      # needs its own line here or it never reaches the container. Add one per file.
       - ./configs/grafana/node-exporter.json:/var/lib/grafana/dashboards/node-exporter.json
+      - ./configs/grafana/tgbot.json:/var/lib/grafana/dashboards/tgbot.json
       - grafana-data:/var/lib/grafana
     user: "0"
 

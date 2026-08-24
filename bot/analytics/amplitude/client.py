@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 import orjson
 from aiohttp import ClientSession, ClientTimeout
@@ -55,3 +56,17 @@ class AmplitudeTelegramLogger(AbstractAnalyticsLogger):
     ) -> None:
         """Use this method to sends event to Amplitude."""
         await self._send_request(event)
+
+    async def send_raw(self, event: dict[str, Any]) -> None:
+        """Send a pre-serialized event dict (used by the buffered flush task)."""
+        data = {"api_key": self._api_token, "events": [event]}
+        async with (
+            ClientSession() as session,
+            session.post(
+                self._base_url,
+                headers=self._headers,
+                data=orjson.dumps(data),
+                timeout=self._timeout,
+            ) as response,
+        ):
+            self._validate_response(await response.json(content_type="application/json"))

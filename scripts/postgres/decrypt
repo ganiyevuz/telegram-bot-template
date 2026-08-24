@@ -1,0 +1,286 @@
+#!/bin/sh
+#
+# Restore path for what Backupgram ships to Telegram.
+#
+# The scheduled task splits an age-encrypted dump into Telegram-sized parts and posts
+# them with a manifest that carries the SHA-256 of the whole ciphertext. This script is
+# the other half: it reassembles those parts, proves they are the bytes that were
+# uploaded, decrypts them with the private half of the keypair, and restores them.
+#
+# Run it on the machine that holds the private key — NOT inside the deployment. The
+# deployment only ever has the public half (see BackupSettings.age_public_key), which is
+# the point: a compromised bot host cannot read back what it uploaded.
+#
+#   ./scripts/postgres/decrypt -k backup-key.txt -s <sha256> ./parts/
+#   ./scripts/postgres/decrypt -k backup-key.txt -s <sha256> -o restored.dump.gz ./parts/
+#
+# The private key is taken as a *path argument* and never from the environment: env vars
+# leak into `docker inspect`, `ps -e`, crash reporters and CI logs, and this one key is
+# the only thing standing between an intercepted channel export and the whole database.
+
+set -eu
+# The plaintext dump lands in a temp directory. Nobody else on the box gets to read it.
+umask 077
+
+PROGRAM_NAME=$(basename "$0")
+
+usage() {
+    cat <<USAGE
+Usage: ${PROGRAM_NAME} -k <identity-file> -s <sha256> [options] <part-file>... | <directory>
+
+Reassembles backup-<ts>.dump.gz.age.partNN files in numeric order, verifies their
+SHA-256 against the digest from the manifest, decrypts with age, and restores.
+
+Required:
+  -k <file>    age identity (private key) file. A path, never an env var.
+  -s <hex>     Expected SHA-256 of the assembled ciphertext, from the manifest.
+
+Input:
+  Positional arguments are the part files, or a single directory holding them.
+
+Options:
+  -o <file>    Decrypt only: write the plaintext .dump.gz here and touch no database.
+  -d <name>    Target database (default: \$PGDATABASE, else \$POSTGRES_DB).
+  -U <name>    Connect as this role (default: \$PGUSER, else \$POSTGRES_USER).
+  -H <host>    Database host (default: \$PGHOST, else localhost).
+  -p <port>    Database port (default: \$PGPORT, else 5432).
+  -c           Pass --clean --if-exists to pg_restore (overwrite existing objects).
+  -y           Skip the interactive confirmation. For automation only.
+  -h           Show this help.
+
+Password handling is libpq's: PGPASSWORD or ~/.pgpass, same as psql.
+USAGE
+}
+
+die() {
+    echo "${PROGRAM_NAME}: $*" >&2
+    exit 1
+}
+
+note() {
+    echo "==> $*"
+}
+
+# sha256sum on GNU/BusyBox, shasum on macOS, openssl as the last resort. The operator
+# runs this on their own laptop as often as on a server, so assuming coreutils is wrong.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$1" | sed 's/.*= //'
+    else
+        die "no SHA-256 tool found (looked for sha256sum, shasum, openssl)"
+    fi
+}
+
+to_lower() {
+    printf '%s' "$1" | tr 'ABCDEF' 'abcdef'
+}
+
+# "007" -> "7", "0" -> "0". Needed because part indices are zero-padded and $(( ))
+# reads a leading zero as octal.
+strip_zeros() {
+    printf '%s' "$1" | sed 's/^0*//; s/^$/0/'
+}
+
+identity_file=""
+expected_digest=""
+output_file=""
+target_db="${PGDATABASE:-${POSTGRES_DB:-}}"
+target_user="${PGUSER:-${POSTGRES_USER:-}}"
+target_host="${PGHOST:-localhost}"
+target_port="${PGPORT:-5432}"
+clean_first="no"
+assume_yes="no"
+
+while getopts "k:s:o:d:U:H:p:cyh" opt; do
+    case "$opt" in
+        k) identity_file="$OPTARG" ;;
+        s) expected_digest="$OPTARG" ;;
+        o) output_file="$OPTARG" ;;
+        d) target_db="$OPTARG" ;;
+        U) target_user="$OPTARG" ;;
+        H) target_host="$OPTARG" ;;
+        p) target_port="$OPTARG" ;;
+        c) clean_first="yes" ;;
+        y) assume_yes="yes" ;;
+        h) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+[ -n "$identity_file" ] || { usage >&2; die "-k <identity-file> is required"; }
+[ -n "$expected_digest" ] || { usage >&2; die "-s <sha256> is required; the manifest carries it"; }
+[ $# -gt 0 ] || { usage >&2; die "no part files given"; }
+
+[ -f "$identity_file" ] || die "identity file not found: ${identity_file}"
+command -v age >/dev/null 2>&1 || die "age is not installed (brew install age / apk add age)"
+
+# A private key the rest of the machine can read is a private key you no longer have.
+key_mode=$(ls -ld "$identity_file" | cut -c5-10)
+case "$key_mode" in
+    ------) ;;
+    *) echo "${PROGRAM_NAME}: WARNING: ${identity_file} is readable beyond its owner (${key_mode}); chmod 600 it." >&2 ;;
+esac
+
+workdir=$(mktemp -d "${TMPDIR:-/tmp}/backupgram.XXXXXX")
+cleanup() {
+    rm -rf "$workdir"
+}
+# The decrypted dump is a full copy of the database in cleartext. It never outlives this
+# script, on success or on failure. An EXIT trap alone is not enough for that: a signal
+# with no handler kills the shell *without* running it, and `decrypt ... | head -3`
+# delivers SIGPIPE the moment head has the lines it wanted — which would leave the whole
+# database sitting in /tmp in the clear. Verified: before these signals were listed,
+# piping to `head` did exactly that.
+trap cleanup EXIT
+trap 'cleanup; exit 1' HUP INT QUIT PIPE TERM
+
+# A single directory argument means "every part in here".
+if [ $# -eq 1 ] && [ -d "$1" ]; then
+    # Trailing slash stripped so the echoed paths do not come out as `dir//file`.
+    part_dir="${1%/}"
+    set --
+    for candidate in "$part_dir"/*.part*; do
+        [ -f "$candidate" ] || continue
+        set -- "$@" "$candidate"
+    done
+    [ $# -gt 0 ] || die "no *.partNN files in ${part_dir}"
+fi
+
+# `cat part*` is wrong the moment there are ten or more parts: the shell expands globs
+# in lexical order, where part10 sorts before part2, so the ciphertext is assembled in
+# the wrong order and the digest check below is the only thing that notices. Sort on the
+# numeric suffix instead.
+index_list="${workdir}/parts.index"
+: > "$index_list"
+for part in "$@"; do
+    [ -f "$part" ] || die "part file not found: ${part}"
+    case "$part" in
+        *.part*) ;;
+        *) die "not a part file (expected a .partNN suffix): ${part}" ;;
+    esac
+    index="${part##*.part}"
+    case "$index" in
+        '' | *[!0-9]*) die "part suffix is not numeric: ${part}" ;;
+    esac
+    printf '%s\t%s\n' "$index" "$part" >> "$index_list"
+done
+
+sorted_index="${workdir}/parts.sorted"
+sort -n -k1,1 "$index_list" > "$sorted_index"
+cut -f1 "$sorted_index" > "${workdir}/parts.numbers"
+cut -f2- "$sorted_index" > "${workdir}/parts.paths"
+
+# A missing part is a corrupt restore waiting to happen, and the numbering says so
+# before a single byte is read. Checked as a consecutive run rather than against a fixed
+# base, so it holds whether the splitter numbers from 00 or from 01.
+previous=""
+while read -r index; do
+    current=$(strip_zeros "$index")
+    if [ -n "$previous" ] && [ "$current" -ne $((previous + 1)) ]; then
+        die "part numbering jumps from ${previous} to ${current} — a part is missing or duplicated"
+    fi
+    previous="$current"
+done < "${workdir}/parts.numbers"
+
+part_count=$(wc -l < "${workdir}/parts.numbers" | tr -d ' ')
+note "Reassembling ${part_count} part(s) in numeric order:"
+sed 's/^/      /' "${workdir}/parts.paths"
+
+ciphertext="${workdir}/backup.dump.gz.age"
+: > "$ciphertext"
+while IFS= read -r part; do
+    cat "$part" >> "$ciphertext"
+done < "${workdir}/parts.paths"
+
+note "Verifying SHA-256 of the assembled ciphertext..."
+actual_digest=$(to_lower "$(sha256_of "$ciphertext")")
+# Tolerates a whole `sha256sum` line being pasted in, not just the bare hex.
+wanted_digest=$(to_lower "${expected_digest%% *}")
+echo "      expected: ${wanted_digest}"
+echo "      actual:   ${actual_digest}"
+if [ "$actual_digest" != "$wanted_digest" ]; then
+    # Both digests repeated on stderr: whoever is reading a failure is usually reading a
+    # log where stdout and stderr have already been interleaved or separated.
+    die "SHA-256 MISMATCH — refusing to decrypt.
+      expected: ${wanted_digest}
+      actual:   ${actual_digest}
+    The parts are truncated, reordered or tampered with. Restoring a partial dump over a
+    live database is worse than not restoring at all; re-download the parts and retry."
+fi
+note "Digest matches."
+
+plaintext_gz="${workdir}/backup.dump.gz"
+note "Decrypting with age..."
+age -d -i "$identity_file" -o "$plaintext_gz" "$ciphertext"
+# Proves the gzip stream is whole, before anything decides to trust its contents.
+gzip -t "$plaintext_gz"
+
+if [ -n "$output_file" ]; then
+    cp "$plaintext_gz" "$output_file"
+    note "Wrote the decrypted archive to ${output_file}. No database was touched."
+    exit 0
+fi
+
+[ -n "$target_db" ] || die "no target database: pass -d <name> (or set PGDATABASE)"
+
+dump_file="${workdir}/backup.dump"
+gunzip -c "$plaintext_gz" > "$dump_file"
+
+# pgbackup writes plain SQL (.sql.gz) while scripts/postgres/backup writes a pg_dump
+# custom-format archive (.dump.gz). Both end up in /backups and both can be what
+# Backupgram shipped, so detect which one this is instead of guessing: the custom
+# format starts with the literal "PGDMP".
+archive_magic=$(head -c 5 "$dump_file" 2>/dev/null || true)
+if [ "$archive_magic" = "PGDMP" ]; then
+    archive_format="pg_dump custom format"
+    restore_tool="pg_restore"
+else
+    archive_format="plain SQL"
+    restore_tool="psql"
+fi
+command -v "$restore_tool" >/dev/null 2>&1 || die "${restore_tool} is not installed"
+
+echo
+note "About to restore:"
+echo "      archive:  ${archive_format} ($(wc -c < "$dump_file" | tr -d ' ') bytes, via ${restore_tool})"
+echo "      host:     ${target_host}:${target_port}"
+echo "      user:     ${target_user:-<libpq default>}"
+echo "      database: ${target_db}"
+if [ "$clean_first" = "yes" ]; then
+    echo "      mode:     --clean --if-exists (existing objects will be DROPPED)"
+else
+    echo "      mode:     additive (fails on objects that already exist)"
+fi
+echo
+echo "    This writes into an existing database. Anything it conflicts with is lost."
+
+if [ "$assume_yes" != "yes" ]; then
+    [ -t 0 ] || die "not a terminal and -y was not given; refusing to restore unattended"
+    printf '    Type the target database name (%s) to proceed: ' "$target_db"
+    read -r confirmation
+    [ "$confirmation" = "$target_db" ] || die "confirmation did not match — nothing was restored"
+fi
+
+set -- -h "$target_host" -p "$target_port" -d "$target_db"
+if [ -n "$target_user" ]; then
+    set -- "$@" -U "$target_user"
+fi
+
+note "Restoring..."
+if [ "$restore_tool" = "pg_restore" ]; then
+    # --exit-on-error, because pg_restore's default is to log an error, carry on, and
+    # leave you with a half-populated database it called a success.
+    if [ "$clean_first" = "yes" ]; then
+        set -- "$@" --clean --if-exists
+    fi
+    pg_restore "$@" --exit-on-error "$dump_file"
+else
+    psql "$@" -v ON_ERROR_STOP=1 -f "$dump_file"
+fi
+
+note "Restore complete: ${target_db} on ${target_host}:${target_port}."

@@ -1,87 +1,204 @@
 from __future__ import annotations
+from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine.url import URL
 
 DIR = Path(__file__).absolute().parent.parent.parent
 BOT_DIR = Path(__file__).absolute().parent.parent
 LOCALES_DIR = f"{BOT_DIR}/locales"
 I18N_DOMAIN = "messages"
 DEFAULT_LOCALE = "en"
+# The admin password this template ships with, in `.env.example` and as the fallback
+# below. `seed_default_admin` warns on every deployment still running with it.
+SHIPPED_ADMIN_PASSWORD = "admin"  # noqa: S105 - a published default, not a secret
+
+_ENV = SettingsConfigDict(env_file=f"{DIR}/.env", env_file_encoding="utf-8", extra="ignore")
 
 
-class EnvBaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+class BotSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="BOT_")
+
+    token: SecretStr
+    support_url: str | None = Field(default=None, validation_alias="SUPPORT_URL")
+    rate_limit: float = Field(default=0.5, validation_alias="RATE_LIMIT")
 
 
-class WebhookSettings(EnvBaseSettings):
-    USE_WEBHOOK: bool = False
-    WEBHOOK_BASE_URL: str = "https://xxx.ngrok-free.app"
-    WEBHOOK_PATH: str = "/webhook"
-    WEBHOOK_SECRET: str = ""
-    WEBHOOK_HOST: str = "localhost"
-    WEBHOOK_PORT: int = 8080
+class DatabaseSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="DB_")
 
-    @property
-    def webhook_url(self) -> str:
-        if settings.USE_WEBHOOK:
-            return f"{self.WEBHOOK_BASE_URL}{self.WEBHOOK_PATH}"
-        return f"http://localhost:{settings.WEBHOOK_PORT}{settings.WEBHOOK_PATH}"
-
-
-class BotSettings(WebhookSettings):
-    BOT_TOKEN: str
-    SUPPORT_URL: str | None = None
-    RATE_LIMIT: int | float = 0.5  # for throttling control
-
-
-class DBSettings(EnvBaseSettings):
-    DB_HOST: str = "postgres"
-    DB_PORT: int = 5432
-    DB_USER: str = "postgres"
-    DB_PASS: str | None = None
-    DB_NAME: str = "postgres"
+    host: str = "postgres"
+    port: int = 5432
+    user: str = "postgres"
+    password: SecretStr | None = Field(default=None, validation_alias="DB_PASS")
+    name: str = "postgres"
+    pool_size: int = 10
+    max_overflow: int = 5
 
     @property
-    def database_url(self) -> URL | str:
-        if self.DB_PASS:
-            return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        return f"postgresql+asyncpg://{self.DB_USER}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    def url(self) -> str:
+        if not self.password or not self.password.get_secret_value():
+            auth = self.user
+        else:
+            auth = f"{self.user}:{self.password.get_secret_value()}"
+        return f"postgresql+asyncpg://{auth}@{self.host}:{self.port}/{self.name}"
+
+
+class RedisSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="REDIS_")
+
+    host: str = "redis"
+    port: int = 6379
+    password: SecretStr | None = Field(default=None, validation_alias="REDIS_PASS")
+    db: int = 0
 
     @property
-    def database_url_psycopg2(self) -> str:
-        if self.DB_PASS:
-            return f"postgresql://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        return f"postgresql://{self.DB_USER}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    def url(self) -> str:
+        if not self.password or not self.password.get_secret_value():
+            auth = ""
+        else:
+            auth = f":{self.password.get_secret_value()}@"
+        return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
-class CacheSettings(EnvBaseSettings):
-    REDIS_HOST: str = "redis"
-    REDIS_PORT: int = 6379
-    REDIS_PASS: str | None = None
+class WebhookSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="WEBHOOK_")
 
-    # REDIS_DATABASE: int = 1
-    # REDIS_USERNAME: int | None = None
-    # REDIS_TTL_STATE: int | None = None
-    # REDIS_TTL_DATA: int | None = None
+    enabled: bool = Field(default=False, validation_alias="USE_WEBHOOK")
+    base_url: str = "https://example.com"
+    path: str = "/webhook"
+    secret: SecretStr = SecretStr("")
+    verify_source_ip: bool = Field(default=True, validation_alias="WEBHOOK_VERIFY_SOURCE_IP")
+    trust_proxy_headers: bool = Field(default=False, validation_alias="WEBHOOK_TRUST_PROXY_HEADERS")
+    host: str = "0.0.0.0"  # noqa: S104
+    port: int = 8080
 
     @property
-    def redis_url(self) -> str:
-        if self.REDIS_PASS:
-            return f"redis://{self.REDIS_PASS}@{self.REDIS_HOST}:{self.REDIS_PORT}/0"
-        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+    def url(self) -> str:
+        return f"{self.base_url}{self.path}"
 
 
-class Settings(BotSettings, DBSettings, CacheSettings):
-    DEBUG: bool = False
+class PaymentSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="PAYMENT_")
 
-    SENTRY_DSN: str | None = None
+    currency: str = "XTR"
+    premium_price: int = 100  # Stars for a 30-day period
+    subscription_period_days: int = 30
 
-    AMPLITUDE_API_KEY: str  # or for example it could be POSTHOG_API_KEY
+
+class WebAppSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="WEBAPP_")
+
+    # Public HTTPS URL of the Mini App page. Telegram refuses to load a Mini App over
+    # plain HTTP, and `localhost` resolves to the phone itself on mobile clients — use a
+    # tunnel (cloudflared, ngrok, ...) for local testing. Left unset the launch button is
+    # omitted from the menu entirely: `WebAppInfo(url="")` is rejected by Telegram and
+    # takes the *whole* keyboard down with it, not just that one button.
+    url: str | None = Field(default=None, validation_alias="WEBAPP_URL")
+    # How long a captured `initData` string stays usable, in seconds. It is a bearer
+    # credential: anything holding it can call this API as that user until it expires,
+    # and replay within the window is by design (the signature is checked, not consumed).
+    # One hour, not the day this used to default to — the Telegram client refreshes
+    # `initData` on its own, so shortening the window costs no usability and bounds the
+    # damage from a leaked one.
+    init_data_max_age_seconds: int = Field(default=3600, validation_alias="WEBAPP_INIT_DATA_MAX_AGE")
 
 
-settings = Settings()
+class AdminSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="ADMIN_")
+
+    enabled: bool = True
+    # Signs the admin session cookie. Deliberately empty by default: a shipped
+    # signing key lets anyone who has read the template forge an admin session on
+    # every deployment that did not change it — which is exactly what the Flask
+    # panel did (`SECRET_KEY: str = os.getenv("SECRET_KEY") or "x%#3&%giwv8f0+..."`).
+    # An empty value is not usable: `AdminAuth` refuses to construct without one.
+    secret_key: SecretStr = SecretStr("")
+    # Kept under their historical env names rather than the ADMIN_ prefix. Renaming
+    # them to ADMIN_DEFAULT_* would silently ignore what an existing deployment has
+    # in its .env and seed the shipped default password instead of the operator's.
+    default_email: str = Field(default="admin@example.com", validation_alias="DEFAULT_ADMIN_EMAIL")
+    default_password: SecretStr = Field(
+        default=SecretStr(SHIPPED_ADMIN_PASSWORD),
+        validation_alias="DEFAULT_ADMIN_PASSWORD",
+    )
+
+
+class NotifierSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="NOTIFIER_")
+
+    # Telegram chat to receive operational alerts. Deliberately unset by default: this
+    # is the notifier's off switch — with no chat configured, sending an alert must be a
+    # silent no-op rather than an error. An operator who has not set up alerting should
+    # not receive a stream of failures *about* alerting.
+    chat_id: int | None = None
+    # Optional forum topic (message thread) within chat_id to post alerts into.
+    topic_id: int | None = None
+    # HMAC key authenticating POST /api/notify. Deliberately empty by default: unlike
+    # ADMIN_SECRET_KEY, an empty value here does not fall back to "unauthenticated" —
+    # it disables the endpoint outright.
+    secret: SecretStr = SecretStr("")
+    # Minimum seconds between two alerts sharing the same fingerprint; repeats within
+    # the window are counted and rolled into the next delivered alert's "suppressed" tail.
+    cooldown_seconds: int = 300
+
+
+class BackupSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV, env_prefix="BACKUP_")
+
+    # X25519 recipient the dumps are encrypted to, `age1...`. Deliberately empty by
+    # default and an empty value is a REFUSAL, not a fallback — shipping a keypair with
+    # the template would have every deployment encrypt to the same recipient, which is
+    # the same as not encrypting. The deployment holds only this public half; the
+    # private key never enters it, so the bot cannot read back what it uploaded.
+    age_public_key: str = ""
+    # Telegram chat the encrypted artifacts are shipped to — a private channel the bot
+    # is an admin of. Unset means the feature is off, the same off switch NotifierSettings
+    # uses.
+    chat_id: int | None = None
+    schedule: str = "0 3 * * *"  # daily at 03:00, crontab syntax
+    # Where `pgbackup` leaves its compressed dumps. Backupgram does NOT dump the database:
+    # it mounts that service's volume read-only (see `worker` in docker-compose.yml) and
+    # ships what is already there. Re-dumping would double the load on Postgres for nothing.
+    dir: str = "/backups"
+    keep_days: int = 30
+
+
+class AnalyticsSettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV)
+
+    amplitude_api_key: str | None = Field(default=None, validation_alias="AMPLITUDE_API_KEY")
+    posthog_api_key: str | None = Field(default=None, validation_alias="POSTHOG_API_KEY")
+    flush_interval_seconds: int = Field(default=30, validation_alias="ANALYTICS_FLUSH_INTERVAL")
+    buffer_key: str = "analytics:buffer"
+
+
+class ObservabilitySettings(BaseSettings):
+    model_config = SettingsConfigDict(**_ENV)
+
+    sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+
+
+class Settings(BaseSettings):
+    model_config = _ENV
+
+    debug: bool = Field(default=False, validation_alias="DEBUG")
+
+    bot: BotSettings = Field(default_factory=BotSettings)
+    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
+    webhook: WebhookSettings = Field(default_factory=WebhookSettings)
+    payments: PaymentSettings = Field(default_factory=PaymentSettings)
+    webapp: WebAppSettings = Field(default_factory=WebAppSettings)
+    admin: AdminSettings = Field(default_factory=AdminSettings)
+    notifier: NotifierSettings = Field(default_factory=NotifierSettings)
+    backup: BackupSettings = Field(default_factory=BackupSettings)
+    analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

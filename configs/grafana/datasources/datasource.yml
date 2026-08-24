@@ -4,6 +4,12 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
+    # <string> stable identifier panels bind to. Without an explicit uid Grafana
+    # generates a random one per provisioning run, so a dashboard JSON could only
+    # reach this datasource through the default-datasource fallback — and any panel
+    # naming a uid would render empty forever, which looks exactly like a monitoring
+    # gap. Keep this in step with configs/grafana/tgbot.json.
+    uid: prometheus
     # <bool> mark as default datasource. Max one per org
     isDefault: true
     # <int> org id. will default to orgId 1 if not specified

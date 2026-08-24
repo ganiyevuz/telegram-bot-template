@@ -2,32 +2,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from aiogram.types import BotCommand, BotCommandScopeDefault
+from aiogram.utils.i18n import lazy_gettext as __
 
 if TYPE_CHECKING:
     from aiogram import Bot
+    from aiogram.utils.i18n.core import I18n
+    from aiogram.utils.i18n.lazy_proxy import LazyProxy
 
-users_commands: dict[str, dict[str, str]] = {
-    "en": {
-        "help": "help",
-        "contacts": "developer contact details",
-        "menu": "main menu with earning schemes",
-        "settings": "setting information about you",
-        "supports": "support contacts",
-    },
-    "uk": {
-        "help": "help",
-        "contacts": "developer contact details",
-        "menu": "main menu with earning schemes",
-        "settings": "setting information about you",
-        "supports": "support contacts",
-    },
-    "ru": {
-        "help": "help",
-        "contacts": "developer contact details",
-        "menu": "main menu with earning schemes",
-        "settings": "setting information about you",
-        "supports": "support contacts",
-    },
+# Descriptions are `lazy_gettext` proxies: `set_default_commands` runs at
+# startup with no per-user context, so these can only be resolved by pushing
+# an explicit locale via `I18n.use_locale()` per iteration below - see there.
+users_commands: dict[str, LazyProxy] = {
+    "help": __("help"),
+    "contacts": __("developer contact details"),
+    "menu": __("main menu"),
+    "settings": __("your settings"),
+    "supports": __("support contacts"),
 }
 
 admins_commands: dict[str, dict[str, str]] = {
@@ -46,14 +36,25 @@ admins_commands: dict[str, dict[str, str]] = {
 }
 
 
-async def set_default_commands(bot: Bot) -> None:
+async def set_default_commands(bot: Bot, i18n: I18n) -> None:
     await remove_default_commands(bot)
 
-    for language_code, commands in users_commands.items():
+    for locale in i18n.available_locales:
+        # `lazy_gettext` proxies resolve against whatever locale is current on
+        # `I18n`'s contextvar; `context()` makes this instance the one that
+        # `get_i18n()` returns, and `use_locale()` sets that locale for the
+        # `str(proxy)` calls in the comprehension below. Same pattern aiogram's
+        # own `I18nMiddleware.__call__` uses per-request.
+        with i18n.context(), i18n.use_locale(locale):
+            commands = [
+                BotCommand(command=command, description=str(description))
+                for command, description in users_commands.items()
+            ]
+
         await bot.set_my_commands(
-            [BotCommand(command=command, description=description) for command, description in commands.items()],
+            commands,
             scope=BotCommandScopeDefault(),
-            language_code=language_code,
+            language_code=locale,
         )
 
         """ Commands for admins

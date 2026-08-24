@@ -5,14 +5,14 @@ from aiogram import BaseMiddleware
 from aiogram.types import Message
 from loguru import logger
 
-from bot.services.users import add_user, user_exists
+from bot.services.users import UserService
 from bot.utils.command import find_command_argument
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from aiogram.types import TelegramObject
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from dishka import AsyncContainer
 
 
 class AuthMiddleware(BaseMiddleware):
@@ -22,23 +22,15 @@ class AuthMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if not isinstance(event, Message):
+        if not isinstance(event, Message) or not event.from_user:
             return await handler(event, data)
 
-        session: AsyncSession = data["session"]
-        message: Message = event
-        user = message.from_user
+        container: AsyncContainer = data["dishka_container"]
+        users = await container.get(UserService)
+        referrer = find_command_argument(event.text)
 
-        if not user:
-            return await handler(event, data)
+        if await users.ensure_registered(event.from_user, referrer):
+            logger.info(f"new user registration | user_id: {event.from_user.id} | referrer: {referrer}")
 
-        if await user_exists(session, user.id):
-            return await handler(event, data)
-
-        referrer = find_command_argument(message.text)
-
-        logger.info(f"new user registration | user_id: {user.id} | message: {message.text}")
-
-        await add_user(session=session, user=user, referrer=referrer)
-
+        data["user_service"] = users
         return await handler(event, data)

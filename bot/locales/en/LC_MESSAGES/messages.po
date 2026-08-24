@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: messages. VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2024-01-15 12:58+0400\n"
+"POT-Creation-Date: 2026-08-23 12:31+0500\n"
 "PO-Revision-Date: 2024-01-14 14:51+0400\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -16,48 +16,156 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.18.0\n"
 
-#: bot/handlers/export_users.py:29
-msgid "user counter: <b>{count}</b>"
-msgstr "user counter: <b>{count}"
+#: bot/handlers/admin_backup.py:39
+msgid "backup started, you'll get a report in this chat"
+msgstr "🗄 Backup started. You will get a report in this chat when it is done."
 
-#: bot/handlers/info.py:11
+#: bot/handlers/admin_payments.py:29
+msgid "usage: /refund USER_ID CHARGE_ID"
+msgstr "usage: /refund USER_ID CHARGE_ID"
+
+#: bot/handlers/admin_payments.py:33
+msgid "refunded"
+msgstr "✅ Refunded, premium revoked."
+
+#: bot/handlers/admin_payments.py:33
+msgid "unknown charge id"
+msgstr "⚠️ Unknown charge id."
+
+#: bot/handlers/broadcast.py:28
+msgid "usage: /broadcast <text>"
+msgstr "usage: /broadcast <text>"
+
+#: bot/handlers/broadcast.py:39 bot/handlers/export_users.py:32
+msgid "could not queue, try again later"
+msgstr "could not queue, try again later"
+
+#: bot/handlers/broadcast.py:41
+#, python-brace-format
+msgid "broadcast queued: <code>{id}</code>"
+msgstr "broadcast queued: <code>{id}</code>"
+
+#: bot/handlers/callbacks.py:41 bot/handlers/info.py:11
 msgid "about"
 msgstr "ℹ️ <b>About</b>"
 
-#: bot/handlers/menu.py:13 bot/handlers/start.py:16
-msgid "title main keyboard"
-msgstr "📒 <b>Menu</b>."
-
-#: bot/handlers/support.py:13
+#: bot/handlers/callbacks.py:46 bot/handlers/support.py:20
 msgid "support text"
 msgstr "🤝 Support"
 
-#: bot/keyboards/inline/contacts.py:11 bot/keyboards/inline/contacts.py:22
-#: bot/keyboards/inline/menu.py:12
-msgid "support button"
-msgstr "Support"
+#: bot/handlers/callbacks.py:51 bot/handlers/menu.py:17
+msgid "title main keyboard"
+msgstr "📒 <b>Menu</b>."
 
-#: bot/keyboards/inline/contacts.py:23
-msgid "back button"
-msgstr "🔙 Back"
+#: bot/handlers/callbacks.py:66
+msgid "not available yet"
+msgstr "Not available yet."
 
-#: bot/keyboards/inline/menu.py:9
-msgid "wallet button"
-msgstr "👛 Wallet"
+#: bot/handlers/errors.py:41 bot/handlers/errors.py:43
+msgid "something went wrong"
+msgstr "⚠️ Something went wrong. Please try again."
 
-#: bot/keyboards/inline/menu.py:10
-msgid "premium button"
-msgstr "🆙 Get PREMIUM"
+#: bot/handlers/export_users.py:34
+msgid "export queued"
+msgstr "export queued"
 
-#: bot/keyboards/inline/menu.py:11
-msgid "info button"
-msgstr "Info"
+#: bot/handlers/payments.py:34
+msgid "Premium access"
+msgstr "Premium access"
 
-#: bot/middlewares/auth.py:41
+#: bot/handlers/payments.py:35
+#, python-brace-format
+msgid "Unlock premium features for {days} days"
+msgstr "Unlock premium features for {days} days"
+
+#: bot/handlers/payments.py:40 bot/services/payments.py:166
+msgid "Premium"
+msgstr "Premium"
+
+#: bot/handlers/payments.py:69
+msgid "subscription renewed, premium is active"
+msgstr "✅ Subscription renewed, premium is active."
+
+#: bot/handlers/payments.py:71
+msgid "payment received, premium is active"
+msgstr "✅ Payment received, premium is active."
+
+#: bot/handlers/start.py:18
 msgid "first message"
 msgstr ""
 "👋 <b>Welcome to the bot.</b>\n"
 "\n"
 "To start using the bot you can start with /menu"
+
+#: bot/keyboards/inline/contacts.py:13 bot/keyboards/inline/contacts.py:24
+#: bot/keyboards/inline/menu.py:23
+msgid "support button"
+msgstr "Support"
+
+#: bot/keyboards/inline/contacts.py:25
+msgid "back button"
+msgstr "🔙 Back"
+
+#: bot/keyboards/inline/menu.py:20
+msgid "wallet button"
+msgstr "👛 Wallet"
+
+#: bot/keyboards/inline/menu.py:21
+msgid "premium button"
+msgstr "🆙 Get PREMIUM"
+
+#: bot/keyboards/inline/menu.py:22
+msgid "info button"
+msgstr "Info"
+
+#: bot/keyboards/inline/menu.py:28
+msgid "mini app button"
+msgstr "🚀 Open Mini App"
+
+#: bot/services/payments.py:75
+msgid "payment error: unknown product"
+msgstr "Unknown product."
+
+#: bot/services/payments.py:81
+msgid "payment error: invoice belongs to another account"
+msgstr ""
+"This invoice was issued to another account. Please reopen the bot and try"
+" again."
+
+#: bot/services/payments.py:83
+msgid "payment error: unsupported currency"
+msgstr "Unsupported currency."
+
+#: bot/services/payments.py:85
+msgid "payment error: price changed"
+msgstr "Price has changed, please reopen the bot and try again."
+
+#: bot/services/payments.py:162
+msgid "Premium subscription"
+msgstr "Premium subscription"
+
+#: bot/services/payments.py:163
+#, python-brace-format
+msgid "Renews every {days} days"
+msgstr "Renews every {days} days"
+
+#~ msgid "user counter: <b>{count}</b>"
+#~ msgstr "user counter: <b>{count}</b>"
+
+#~ msgid "help"
+#~ msgstr "help"
+
+#~ msgid "developer contact details"
+#~ msgstr "developer contact details"
+
+#~ msgid "main menu"
+#~ msgstr "main menu"
+
+#~ msgid "your settings"
+#~ msgstr "your settings"
+
+#~ msgid "support contacts"
+#~ msgstr "support contacts"
+

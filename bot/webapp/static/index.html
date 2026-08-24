@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Without this the page renders at desktop width inside the mobile client. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Mini App</title>
+  <!-- Provides window.Telegram.WebApp. Must be loaded from telegram.org, not vendored:
+       the client patches this file as the Mini App API evolves. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    /* Every colour comes from the --tg-theme-* variables the client injects, so the
+       page follows whatever theme the user runs. The literals are only fallbacks for
+       a browser opened outside Telegram. */
+    :root {
+      color-scheme: light dark;
+      --bg: var(--tg-theme-bg-color, #ffffff);
+      --fg: var(--tg-theme-text-color, #000000);
+      --hint: var(--tg-theme-hint-color, #707579);
+      --link: var(--tg-theme-link-color, #2481cc);
+      --card: var(--tg-theme-secondary-bg-color, #f4f4f5);
+      --accent: var(--tg-theme-button-color, #2481cc);
+      --accent-fg: var(--tg-theme-button-text-color, #ffffff);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+      font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent);
+      color: var(--accent-fg);
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p { margin: 0; color: var(--hint); font-size: 14px; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 14px; }
+    .row span:first-child { color: var(--hint); }
+    .row span:last-child { font-variant-numeric: tabular-nums; }
+    .badge { color: var(--link); font-weight: 600; }
+    .error { color: #e53935; }
+    a { color: var(--link); }
+  </style>
+</head>
+<body>
+  <div class="card" id="profile">
+    <div class="avatar" id="avatar">…</div>
+    <h1 id="greeting">Loading…</h1>
+    <p id="subtitle">Verifying your Telegram session.</p>
+  </div>
+
+  <div class="card" id="details" hidden>
+    <div class="row"><span>User ID</span><span id="user-id">—</span></div>
+    <div class="row"><span>Language</span><span id="language">—</span></div>
+    <div class="row"><span>Premium</span><span id="premium">—</span></div>
+  </div>
+
+  <p id="footer">
+    Demo Mini App shipped with this template — replace it with your own front end.
+  </p>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var tg = window.Telegram && window.Telegram.WebApp;
+      var greeting = document.getElementById("greeting");
+      var subtitle = document.getElementById("subtitle");
+      var footer = document.getElementById("footer");
+
+      if (!tg) {
+        // Opened in a plain browser: telegram-web-app.js never ran, so there is no
+        // session to authenticate with and no MainButton to drive.
+        greeting.textContent = "Open me from Telegram";
+        subtitle.textContent = "This page only works inside a Telegram client.";
+        return;
+      }
+
+      // ready() tells the client the page has painted — without it Telegram can keep
+      // its own loading placeholder up over us. expand() takes the full sheet height.
+      tg.ready();
+      tg.expand();
+
+      // The signed payload. Its hash is verified server-side against the bot token, so
+      // this is the ONLY session credential this page may send.
+      var auth = { Authorization: "tma " + tg.initData };
+
+      function fail(message) {
+        greeting.textContent = "Something went wrong";
+        subtitle.className = "error";
+        subtitle.textContent = message;
+        tg.MainButton.hide();
+      }
+
+      function renderProfile(me) {
+        document.getElementById("avatar").textContent = (me.first_name || "?").charAt(0).toUpperCase();
+        greeting.textContent = "Hi, " + me.first_name + "!";
+        subtitle.textContent = "Your Telegram session was verified by the bot.";
+        document.getElementById("user-id").textContent = me.id;
+        document.getElementById("language").textContent = me.language_code;
+        var premium = document.getElementById("premium");
+        premium.textContent = me.is_premium ? "Active" : "Not subscribed";
+        premium.className = me.is_premium ? "badge" : "";
+        document.getElementById("details").hidden = false;
+
+        if (me.is_premium) {
+          footer.textContent = "Your subscription is active. Thanks for the support!";
+          return;
+        }
+        // The primary action lives on the client's own MainButton, not a custom
+        // element: it sits in the client chrome, matches the theme and stays reachable
+        // above the keyboard.
+        tg.MainButton.setText("Subscribe with Stars");
+        tg.MainButton.show();
+      }
+
+      function buy() {
+        // Confirm the tap in the user's hand before the network round-trip starts.
+        tg.HapticFeedback.impactOccurred("light");
+        tg.MainButton.showProgress(true);
+
+        fetch("/api/webapp/invoice", { method: "POST", headers: auth })
+          .then(function (response) {
+            if (!response.ok) {
+              throw new Error("invoice request failed (" + response.status + ")");
+            }
+            return response.json();
+          })
+          .then(function (data) {
+            tg.MainButton.hideProgress();
+            tg.openInvoice(data.invoice_link, function (status) {
+              if (status === "paid") {
+                tg.HapticFeedback.notificationOccurred("success");
+                tg.MainButton.hide();
+                load();
+              } else if (status === "failed") {
+                tg.HapticFeedback.notificationOccurred("error");
+              }
+            });
+          })
+          .catch(function (error) {
+            tg.MainButton.hideProgress();
+            tg.showAlert("Could not start the payment: " + error.message);
+          });
+      }
+
+      function load() {
+        fetch("/api/webapp/me", { headers: auth })
+          .then(function (response) {
+            if (!response.ok) {
+              throw new Error(
+                response.status === 401
+                  ? "Telegram could not verify this session."
+                  : "The bot answered with " + response.status + "."
+              );
+            }
+            return response.json();
+          })
+          .then(renderProfile)
+          .catch(function (error) { fail(error.message); });
+      }
+
+      tg.MainButton.onClick(buy);
+      load();
+    })();
+  </script>
+</body>
+</html>

@@ -11,9 +11,8 @@ jobs:
     name: Build Checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Build the Docker image
       run: |
         docker build . --file Dockerfile --tag image-bot:$(date +%s)
-        docker build . --file admin/Dockerfile --tag image-admin:$(date +%s)

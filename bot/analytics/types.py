@@ -1,4 +1,4 @@
-# ruff: noqa: N815, TC003
+# ruff: noqa: N815
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from decimal import Decimal
@@ -18,7 +18,7 @@ EventType = Literal[
     "Complete Purchase",
     "Error",
 ]
-PaymentMethod = Literal["Stripe", "PayPal", "Square", "Crypto"]
+PaymentMethod = Literal["Stripe", "PayPal", "Square", "Crypto", "Stars"]
 
 
 class UserProperties(BaseModel):
@@ -75,3 +75,10 @@ class AbstractAnalyticsLogger(ABC):
     @abstractmethod
     async def log_event(self, event: BaseEvent) -> None:
         pass
+
+
+class NullAnalyticsLogger(AbstractAnalyticsLogger):
+    """Used when no analytics provider is configured."""
+
+    async def log_event(self, event: BaseEvent) -> None:  # noqa: ARG002 - signature fixed by the interface
+        return None
